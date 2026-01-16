@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+
+  "name": "单词翻译助手",
+
+  "version": "1.2.0",
+
+  "description": "翻译助手",
+
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs",
+    "webNavigation"
+  ],
+
+  "host_permissions": [
+    "<all_urls>",
+    "https://api.groq.com/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "utils/module-manager.js",
+        "utils/cache-manager.js",
+        "utils/event-manager.js",
+        "utils/performance-monitor.js",
+        "utils/service-degradation-manager.js",
+        "services/netease-translate-service.js",
+        "services/ai-translate-service.js",
+        "modules/theme-manager.js",
+        "components/content/complex/VirtualizedTranslationHighlight.js",
+        "components/content/complex/HighlightManager.js",
+        "components/content/complex/PerformanceMonitor.js",
+        "core/content.js"
+      ],
+      "css": [
+        "core/content.css",
+        "components/complex/word-drawer-v2.css"
+      ],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+
+  "background": {
+    "service_worker": "core/background.js"   
+  },
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+
+   "icons": {
+    "16": "icon16.png"
+  }
+}
