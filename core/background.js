@@ -10,7 +10,7 @@
 
 // 导入辅助模块
 try {
-  importScripts('../utils/module-manager.js', '../config/api-config.js', '../services/ai-translate-service.js', '../services/quality_service.js', '../tests/test_suite.js');
+  importScripts('../utils/module-manager.js', '../config/api-config.js', '../services/ai-translate-service.js', '../services/quality_service.js', '../tests/test_suite.js', '../services/pos-integration-service.js');
 } catch (e) {
   console.error('Failed to import scripts:', e);
 }
@@ -293,6 +293,24 @@ async function smartTranslate(text, context, skipAI = false) {
       result.web = youdaoResult.raw.web || null;
     }
     
+    // 3. 添加词性分析 (Requirement 9.1, 9.5, 11.1-11.5)
+    if (self.posIntegrationService && context) {
+      try {
+        const posAnalysis = self.posIntegrationService.analyzeWord(text, context);
+        result.posAnalysis = {
+          pos: posAnalysis.pos,
+          color: posAnalysis.color,
+          confidence: posAnalysis.confidence,
+          cached: posAnalysis.cached
+        };
+        
+        console.log('POS analysis added:', result.posAnalysis);
+      } catch (posError) {
+        console.warn('POS analysis failed:', posError);
+        // POS analysis failure should not break translation
+      }
+    }
+    
     // 调试日志
     console.log('smartTranslate 返回数据:', {
       hasBasic: !!result.basic,
@@ -300,7 +318,8 @@ async function smartTranslate(text, context, skipAI = false) {
       hasDefinitions: !!result.definitions,
       definitionsCount: result.definitions ? result.definitions.length : 0,
       hasExamples: !!result.examples,
-      examplesCount: result.examples ? result.examples.length : 0
+      examplesCount: result.examples ? result.examples.length : 0,
+      hasPOS: !!result.posAnalysis
     });
     
     return result;
@@ -383,6 +402,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({ ok: true, report: getQualityReport() });
     } else {
       sendResponse({ ok: false, error: 'Quality service not loaded' });
+    }
+    return false;
+  }
+
+  // POS 分析请求 (新增)
+  if (msg && msg.type === 'POS_ANALYZE' && msg.text) {
+    if (self.posIntegrationService) {
+      try {
+        const result = msg.sentence 
+          ? self.posIntegrationService.analyzeWord(msg.text, msg.sentence, msg.position)
+          : self.posIntegrationService.analyzeSentence(msg.text);
+        sendResponse({ ok: true, result });
+      } catch (error) {
+        console.error('POS analysis failed:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service not loaded' });
+    }
+    return false;
+  }
+
+  // 获取 POS 统计信息 (新增)
+  if (msg && msg.type === 'GET_POS_STATS') {
+    if (self.posIntegrationService) {
+      try {
+        const stats = self.posIntegrationService.getStats();
+        sendResponse({ ok: true, stats });
+      } catch (error) {
+        console.error('Failed to get POS stats:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service not loaded' });
     }
     return false;
   }

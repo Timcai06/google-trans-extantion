@@ -4,3 +4,21 @@
 /.vscode
 /Dashboard重构计划.md
 /后端商业化规划方案.md
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+*.js.map
+*.d.ts.map
+
+# Test coverage
+coverage/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# IDE
+.DS_Store

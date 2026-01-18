@@ -2132,7 +2132,8 @@ async function renderPopup({
   wordType = 'word',
   isStarred = false,
   showRemoveBtn = false,
-  mode = 'simple' // 'simple' 或 'full'
+  mode = 'simple', // 'simple' 或 'full'
+  posAnalysis = null // 新增：POS分析结果
 }) {
   const perfId = performanceMonitor.start('renderPopup');
   
@@ -2142,7 +2143,8 @@ async function renderPopup({
     mode,
     meaningsCount: meanings ? meanings.length : 0,
     hasPhonetic: !!phonetic,
-    hasPartOfSpeech: !!partOfSpeech
+    hasPartOfSpeech: !!partOfSpeech,
+    hasPOSAnalysis: !!posAnalysis
   });
   
   // 移除旧的弹窗
@@ -2162,6 +2164,13 @@ async function renderPopup({
   clickTooltip = document.createElement('div');
   clickTooltip.className = `click-tooltip ${posClass}`;
   
+  // 如果有POS分析结果，应用颜色 (Requirement 8.4, 8.5)
+  if (posAnalysis && posAnalysis.color) {
+    clickTooltip.style.borderLeftColor = posAnalysis.color;
+    clickTooltip.style.borderLeftWidth = '4px';
+    clickTooltip.style.borderLeftStyle = 'solid';
+  }
+  
   // 兼容性设置
   translationPopup = clickTooltip;
   
@@ -2169,6 +2178,27 @@ async function renderPopup({
   let phoneticHtml = '';
   if (phonetic) {
     phoneticHtml = `<div class="tooltip-phonetic">${phonetic}</div>`;
+  }
+  
+  // POS分析信息HTML (新增)
+  let posAnalysisHtml = '';
+  if (posAnalysis && posAnalysis.pos && posAnalysis.pos !== 'unknown') {
+    const posLabel = {
+      'noun': '名词',
+      'verb': '动词',
+      'adjective': '形容词',
+      'adverb': '副词'
+    }[posAnalysis.pos] || posAnalysis.pos;
+    
+    const confidencePercent = Math.round((posAnalysis.confidence || 0) * 100);
+    const cacheStatus = posAnalysis.cached ? '(缓存)' : '';
+    
+    posAnalysisHtml = `
+      <div class="tooltip-pos-analysis" style="font-size: 11px; color: ${posAnalysis.color}; margin: 4px 0; opacity: 0.9;">
+        <span style="font-weight: 600;">${posLabel}</span>
+        <span style="opacity: 0.7; margin-left: 6px;">${confidencePercent}% ${cacheStatus}</span>
+      </div>
+    `;
   }
   
   // 格式化翻译结果（根据模式决定是否显示详细释义）
@@ -2221,6 +2251,7 @@ async function renderPopup({
       <button class="tooltip-close">×</button>
     </div>
     ${phoneticHtml}
+    ${posAnalysisHtml}
     ${translationHtml}
     ${actionButtonsHtml}
     <div class="tooltip-count">已翻译 ${count} 次</div>
@@ -2241,7 +2272,7 @@ async function renderPopup({
   // 绑定事件（传递当前所有参数以便重新渲染）
   const currentParams = { 
     text, translation, rect, count, phonetic, partOfSpeech, 
-    meanings, wordType, isStarred, showRemoveBtn, mode 
+    meanings, wordType, isStarred, showRemoveBtn, mode, posAnalysis 
   };
   bindPopupEvents(clickTooltip, currentParams);
   
@@ -2445,6 +2476,9 @@ async function showClickTooltip(element, word, translation, count, phonetic, par
   const context = getContextFromNode(element);
   const completeTranslation = await translateText(word, context, true);
   
+  // 获取POS分析（如果翻译结果中包含）
+  let posAnalysis = completeTranslation.posAnalysis || null;
+  
   // 初始渲染，传递完整的翻译信息
   await renderPopup({
     text: word,
@@ -2457,7 +2491,8 @@ async function showClickTooltip(element, word, translation, count, phonetic, par
     wordType,
     isStarred,
     showRemoveBtn: true, // 点击高亮时总是显示移除按钮
-    mode: mode
+    mode: mode,
+    posAnalysis: posAnalysis // 传递POS分析结果
   });
   
   // 触发 AI 辅助分析（使用元素上下文，500ms 防抖 + 700ms 响应窗口）
@@ -2486,7 +2521,8 @@ async function showClickTooltip(element, word, translation, count, phonetic, par
           wordType,
           isStarred,
           showRemoveBtn: true,
-          mode: mode
+          mode: mode,
+          posAnalysis: posAnalysis
         });
       }
     }
@@ -2621,6 +2657,64 @@ function getPartOfSpeechClass(partOfSpeech) {
   };
   
   return classMap[pos] || 'pos-default';
+}
+
+/**
+ * Apply POS-based color to an element
+ * Uses the POS Integration Service for accurate color mapping
+ * Requirement 8.4: Update color within 50ms of POS recognition
+ * Requirement 8.5: Immediately update display when POS classification changes
+ * 
+ * @param {HTMLElement} element - The element to apply color to
+ * @param {string} word - The word being highlighted
+ * @param {string} sentence - The sentence context
+ * @param {Object} posAnalysis - Optional pre-computed POS analysis result
+ */
+async function applyPOSColor(element, word, sentence, posAnalysis = null) {
+  const startTime = Date.now();
+  
+  try {
+    // If we already have POS analysis from translation, use it
+    if (posAnalysis && posAnalysis.color) {
+      element.style.color = posAnalysis.color;
+      element.setAttribute('data-pos', posAnalysis.pos);
+      element.setAttribute('data-pos-confidence', posAnalysis.confidence || 0);
+      
+      const latency = Date.now() - startTime;
+      if (latency > 50) {
+        console.warn(`POS color application took ${latency}ms (target: 50ms)`);
+      }
+      return;
+    }
+    
+    // Otherwise, request POS analysis from background service
+    if (sentence && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'POS_ANALYZE',
+          text: word,
+          sentence: sentence
+        });
+        
+        if (response && response.ok && response.result) {
+          const result = response.result;
+          element.style.color = result.color;
+          element.setAttribute('data-pos', result.pos);
+          element.setAttribute('data-pos-confidence', result.confidence || 0);
+          
+          const latency = Date.now() - startTime;
+          if (latency > 50) {
+            console.warn(`POS color application took ${latency}ms (target: 50ms)`);
+          }
+        }
+      } catch (error) {
+        console.warn('POS color application failed:', error);
+        // Fallback: use default styling
+      }
+    }
+  } catch (error) {
+    console.error('Error applying POS color:', error);
+  }
 }
 
 // 显示翻译弹窗（使用与点击高亮单词相同的样式）
