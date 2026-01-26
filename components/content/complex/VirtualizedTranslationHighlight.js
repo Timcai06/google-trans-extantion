@@ -868,7 +868,12 @@ class HighlightPool {
 }
 
 // 导出组件
-module.exports = VirtualizedTranslationHighlight;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = VirtualizedTranslationHighlight;
+}
 
 // 同时导出到全局变量
-window.VirtualizedTranslationHighlight = VirtualizedTranslationHighlight;
+if (typeof window !== 'undefined') {
+  window.VirtualizedTranslationHighlight = VirtualizedTranslationHighlight;
+}
+

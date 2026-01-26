@@ -10,9 +10,59 @@
 
 // 导入辅助模块
 try {
-  importScripts('../utils/module-manager.js', '../config/api-config.js', '../services/ai-translate-service.js', '../services/quality_service.js', '../tests/test_suite.js', '../services/pos-integration-service.js');
+  importScripts('../utils/module-manager.js', '../config/api-config.js', '../services/ai-translate-service.js', '../services/quality_service.js', '../tests/test_suite.js', '../services/pos-integration-service.js', '../services/pos-performance-monitor.js', '../services/pos-integration-service-v2.js');
 } catch (e) {
   console.error('Failed to import scripts:', e);
+}
+
+/**
+ * Ollama 服务实例
+ */
+let ollamaService = null;
+
+/**
+ * 初始化 Ollama 服务
+ */
+async function initializeOllamaService() {
+  try {
+    // 尝试多个可能的 Ollama 地址
+    const ollamaUrls = [
+      'http://localhost:11434',
+      'http://127.0.0.1:11434',
+      'http://ollama:11434'
+    ];
+
+    for (const baseUrl of ollamaUrls) {
+      try {
+        console.log(`Checking Ollama at ${baseUrl}...`);
+        const response = await fetch(`${baseUrl}/api/tags`, {
+          signal: AbortSignal.timeout(2000)
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Ollama service is available at', baseUrl);
+          console.log('Available models:', data.models?.map((m: any) => m.name) || []);
+          
+          ollamaService = {
+            available: true,
+            baseUrl: baseUrl,
+            models: data.models || []
+          };
+          return;
+        }
+      } catch (error) {
+        console.warn(`Ollama not available at ${baseUrl}:`, error.message);
+      }
+    }
+
+    // 所有地址都不可用
+    console.warn('⚠️ Ollama service not available at any known address');
+    ollamaService = { available: false };
+  } catch (error) {
+    console.error('❌ Ollama initialization error:', error);
+    ollamaService = { available: false };
+  }
 }
 
 // 使用模块管理器注册和初始化模块
@@ -41,10 +91,37 @@ chrome.runtime.onInstalled.addListener(() => {
   
   // 清理无效的 detailedInfo 数据
   cleanInvalidDetailedInfo();
+  
+  // 初始化 POS Integration Service V2
+  initializePOSServiceV2();
 });
 
 // Service Worker 启动时也执行一次清理（处理已安装用户）
 cleanInvalidDetailedInfo();
+
+// 初始化 POS Service V2
+initializePOSServiceV2();
+
+// 初始化 Ollama 服务
+initializeOllamaService();
+
+/**
+ * 初始化 POS Integration Service V2
+ * Requirements: 10.1-10.5, 11.1
+ */
+async function initializePOSServiceV2() {
+  try {
+    if (self.posIntegrationServiceV2) {
+      console.log('Initializing POS Integration Service V2...');
+      await self.posIntegrationServiceV2.initialize();
+      console.log('POS Integration Service V2 initialized successfully');
+    } else {
+      console.warn('POS Integration Service V2 not loaded');
+    }
+  } catch (error) {
+    console.error('Failed to initialize POS Integration Service V2:', error);
+  }
+}
 
 /**
  * 清理无效的 detailedInfo 数据
@@ -178,32 +255,46 @@ async function translateWithYoudao(text) {
     curtime               // 时间戳
   });
 
-  // 发送HTTP POST请求到有道API
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString()
-  });
+  // 发送HTTP POST请求到有道API，带超时控制
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒超时
+  
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString(),
+      signal: controller.signal
+    });
 
-  // 解析JSON响应
-  const data = await resp.json();
+    clearTimeout(timeoutId);
 
-  // 检查API响应是否成功
-  if (data.errorCode !== '0') {
-    console.error('Youdao API error:', data);
-    throw new Error('Youdao error: ' + data.errorCode);
+    // 解析JSON响应
+    const data = await resp.json();
+
+    // 检查API响应是否成功
+    if (data.errorCode !== '0') {
+      console.error('Youdao API error:', data);
+      throw new Error('Youdao error: ' + data.errorCode);
+    }
+
+    // 提取翻译结果
+    const translation = Array.isArray(data.translation) ? data.translation[0] : ''; // 主译文
+    const basic = data.basic || null; // 词典信息（单词音标、词性等）
+
+    // 返回结构化的翻译结果
+    return {
+      translation,    // 翻译文本
+      basic,         // 词典详细信息
+      raw: data      // 原始API响应数据
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Youdao API request timeout (2s)');
+    }
+    throw error;
   }
-
-  // 提取翻译结果
-  const translation = Array.isArray(data.translation) ? data.translation[0] : ''; // 主译文
-  const basic = data.basic || null; // 词典信息（单词音标、词性等）
-
-  // 返回结构化的翻译结果
-  return {
-    translation,    // 翻译文本
-    basic,         // 词典详细信息
-    raw: data      // 原始API响应数据
-  };
 }
 
 // =========================
@@ -221,10 +312,14 @@ async function translateWithYoudao(text) {
 async function smartTranslate(text, context, skipAI = false) {
   const startTime = Date.now();
   
-  // 1. 尝试 AI 翻译 (如果不跳过)
+  // 1. 尝试 AI 翻译 (如果不跳过) - 但设置更短的超时
   if (!skipAI) {
     try {
-      const aiResult = await self.translateWithAI(text, context);
+      // 使用 Promise.race 限制 AI 翻译的等待时间为 1 秒
+      const aiResult = await Promise.race([
+        self.translateWithAI(text, context),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 1000))
+      ]);
       const latency = Date.now() - startTime;
       
       // 记录成功 metrics
@@ -234,7 +329,7 @@ async function smartTranslate(text, context, skipAI = false) {
       
       return {
         translation: aiResult.translation,
-        basic: null, // AI 暂不返回词典信息，可后续通过 Prompt 优化
+        basic: null,
         source: 'ai',
         raw: aiResult
       };
@@ -294,13 +389,17 @@ async function smartTranslate(text, context, skipAI = false) {
     }
     
     // 3. 添加词性分析 (Requirement 9.1, 9.5, 11.1-11.5)
-    if (self.posIntegrationService && context) {
+    // Try V2 service first (with AI support), fallback to V1
+    const posService = self.posIntegrationServiceV2 || self.posIntegrationService;
+    
+    if (posService && context) {
       try {
-        const posAnalysis = self.posIntegrationService.analyzeWord(text, context);
+        const posAnalysis = await posService.analyzeWord(text, context);
         result.posAnalysis = {
           pos: posAnalysis.pos,
           color: posAnalysis.color,
           confidence: posAnalysis.confidence,
+          approach: posAnalysis.approach || 'frontend',
           cached: posAnalysis.cached
         };
         
@@ -335,47 +434,165 @@ async function smartTranslate(text, context, skipAI = false) {
 
 
 /**
- * Ollama API 调用函数
+ * Ollama API 调用函数 - 改进版本
+ * 支持多种 Ollama API 端点和响应格式
  */
 async function fetchOllama(data) {
   const OLLAMA_CONFIG = {
     baseUrl: 'http://127.0.0.1:11434',
     timeout: 60000,
+    retries: 2
   };
 
+  let lastError = null;
+
+  // 尝试多个可能的 API 端点
+  const endpoints = [
+    `${OLLAMA_CONFIG.baseUrl}/api/generate`,
+    `${OLLAMA_CONFIG.baseUrl}/api/chat`,
+    `${OLLAMA_CONFIG.baseUrl}/generate`
+  ];
+
+  for (let attempt = 0; attempt < OLLAMA_CONFIG.retries; attempt++) {
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`🔮 Attempt ${attempt + 1}: Connecting to Ollama at ${endpoint}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), OLLAMA_CONFIG.timeout);
+
+        // 准备请求数据
+        const requestData = {
+          ...data,
+          stream: false
+        };
+
+        // 如果是 chat 端点，需要转换格式
+        if (endpoint.includes('/chat')) {
+          requestData.messages = requestData.messages || [
+            { role: 'user', content: requestData.prompt }
+          ];
+          delete requestData.prompt;
+        }
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestData),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`Endpoint ${endpoint} returned ${response.status}: ${errorText}`);
+          lastError = new Error(`Ollama API error: ${response.status}`);
+          continue; // 尝试下一个端点
+        }
+
+        const result = await response.json();
+        console.log('✅ Ollama response received from:', endpoint);
+        
+        // 处理不同的响应格式
+        if (result.response) {
+          return result.response;
+        } else if (result.message?.content) {
+          return result.message.content;
+        } else if (result.choices?.[0]?.message?.content) {
+          return result.choices[0].message.content;
+        } else if (typeof result === 'string') {
+          return result;
+        } else {
+          console.warn('Unexpected Ollama response format:', result);
+          return JSON.stringify(result);
+        }
+      } catch (error) {
+        console.warn(`Error with endpoint ${endpoint}:`, error.message);
+        lastError = error;
+        // 继续尝试下一个端点
+      }
+    }
+  }
+
+  // 所有尝试都失败了
+  console.error('❌ All Ollama endpoints failed');
+  throw lastError || new Error('Ollama request failed - no endpoints available');
+}
+
+/**
+ * 使用 Ollama 进行 POS 分析 - 改进版本
+ */
+async function analyzeWithOllama(text, sentence) {
+  if (!ollamaService?.available) {
+    throw new Error('Ollama service not available');
+  }
+
+  // 创建更清晰的提示词
+  const prompt = `You are a part-of-speech (POS) tagger. Analyze the word "${text}" in the sentence: "${sentence}"
+
+Return ONLY a valid JSON object (no markdown, no extra text, no code blocks):
+{
+  "word": "${text}",
+  "pos": "noun|verb|adjective|adverb|unknown",
+  "confidence": 0.85,
+  "explanation": "brief explanation"
+}
+
+Rules:
+- Participles (broken, written, etc.) should be tagged as "adjective" if used as adjective, "verb" if used as verb
+- -ing words should be tagged as "verb" if used as verb, "noun" if used as noun, "adjective" if used as adjective
+- Be precise and concise`;
+
   try {
-    console.log('🔮 Connecting to Ollama:', OLLAMA_CONFIG.baseUrl);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), OLLAMA_CONFIG.timeout);
-
-    const requestData = {
-      ...data,
-      stream: false
-    };
-
-    const response = await fetch(`${OLLAMA_CONFIG.baseUrl}/api/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestData),
-      signal: controller.signal,
+    console.log(`Analyzing "${text}" with Ollama...`);
+    
+    const response = await fetchOllama({
+      model: 'mistral',
+      prompt: prompt,
+      temperature: 0.3
     });
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Ollama error response:', errorText);
-      throw new Error(`Ollama API error: ${response.status} - ${errorText}`);
+    if (!response) {
+      throw new Error('Empty response from Ollama');
     }
 
-    const result = await response.json();
-    console.log('✅ Ollama response received');
-    return result.response || null;
+    console.log('Ollama raw response:', response);
+
+    // 尝试解析 JSON 响应
+    let jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn('No JSON found in response, attempting to extract...');
+      // 尝试清理响应
+      const cleaned = response
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim();
+      jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    }
+
+    if (!jsonMatch) {
+      throw new Error('No valid JSON found in Ollama response');
+    }
+
+    const result = JSON.parse(jsonMatch[0]);
+    
+    // 验证响应格式
+    if (!result.word || !result.pos) {
+      throw new Error('Invalid response format from Ollama');
+    }
+    
+    return {
+      word: result.word || text,
+      pos: result.pos || 'unknown',
+      confidence: result.confidence || 0.85,
+      explanation: result.explanation || '',
+      approach: 'ollama'
+    };
   } catch (error) {
-    console.error('❌ Ollama fetch error:', error);
-    throw new Error(error.message || 'Ollama request failed');
+    console.error('Ollama POS analysis failed:', error);
+    throw error;
   }
 }
 
@@ -408,11 +625,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // POS 分析请求 (新增)
   if (msg && msg.type === 'POS_ANALYZE' && msg.text) {
-    if (self.posIntegrationService) {
+    const posService = self.posIntegrationServiceV2 || self.posIntegrationService;
+    
+    if (posService) {
       try {
         const result = msg.sentence 
-          ? self.posIntegrationService.analyzeWord(msg.text, msg.sentence, msg.position)
-          : self.posIntegrationService.analyzeSentence(msg.text);
+          ? await posService.analyzeWord(msg.text, msg.sentence, msg.position)
+          : await posService.analyzeSentence(msg.text);
         sendResponse({ ok: true, result });
       } catch (error) {
         console.error('POS analysis failed:', error);
@@ -421,14 +640,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     } else {
       sendResponse({ ok: false, error: 'POS service not loaded' });
     }
-    return false;
+    return true; // Async response
   }
 
   // 获取 POS 统计信息 (新增)
   if (msg && msg.type === 'GET_POS_STATS') {
-    if (self.posIntegrationService) {
+    const posService = self.posIntegrationServiceV2 || self.posIntegrationService;
+    
+    if (posService) {
       try {
-        const stats = self.posIntegrationService.getStats();
+        const stats = posService.getStats();
         sendResponse({ ok: true, stats });
       } catch (error) {
         console.error('Failed to get POS stats:', error);
@@ -436,6 +657,118 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
     } else {
       sendResponse({ ok: false, error: 'POS service not loaded' });
+    }
+    return false;
+  }
+  
+  // 获取用户配置 (新增 - Requirement 10.1, 10.2)
+  if (msg && msg.type === 'GET_USER_CONFIG') {
+    if (self.posIntegrationServiceV2) {
+      try {
+        const config = await self.posIntegrationServiceV2.getUserConfig();
+        sendResponse({ ok: true, config });
+      } catch (error) {
+        console.error('Failed to get user config:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service V2 not loaded' });
+    }
+    return true; // Async response
+  }
+  
+  // 更新用户配置 (新增 - Requirement 10.1, 10.2)
+  if (msg && msg.type === 'UPDATE_USER_CONFIG' && msg.config) {
+    if (self.posIntegrationServiceV2) {
+      try {
+        await self.posIntegrationServiceV2.updateUserConfig(msg.config);
+        sendResponse({ ok: true });
+      } catch (error) {
+        console.error('Failed to update user config:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service V2 not loaded' });
+    }
+    return true; // Async response
+  }
+  
+  // 刷新服务可用性 (新增 - Requirement 10.3, 10.4)
+  if (msg && msg.type === 'REFRESH_SERVICE_AVAILABILITY') {
+    if (self.posIntegrationServiceV2) {
+      try {
+        const availability = await self.posIntegrationServiceV2.refreshServiceAvailability();
+        sendResponse({ ok: true, availability });
+      } catch (error) {
+        console.error('Failed to refresh service availability:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service V2 not loaded' });
+    }
+    return true; // Async response
+  }
+  
+  // 导出统计数据 (新增 - Requirement 9.5)
+  if (msg && msg.type === 'EXPORT_POS_STATS') {
+    if (self.posIntegrationServiceV2) {
+      try {
+        const stats = self.posIntegrationServiceV2.exportStats();
+        sendResponse({ ok: true, stats });
+      } catch (error) {
+        console.error('Failed to export stats:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service V2 not loaded' });
+    }
+    return false;
+  }
+  
+  // 获取性能指标 (新增 - Requirement 9.1, 9.5)
+  if (msg && msg.type === 'GET_PERFORMANCE_METRICS') {
+    if (self.posPerformanceMonitor) {
+      try {
+        const metrics = self.posPerformanceMonitor.getMetrics();
+        sendResponse({ ok: true, metrics });
+      } catch (error) {
+        console.error('Failed to get performance metrics:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'Performance monitor not loaded' });
+    }
+    return false;
+  }
+  
+  // 获取性能摘要 (新增)
+  if (msg && msg.type === 'GET_PERFORMANCE_SUMMARY') {
+    if (self.posPerformanceMonitor) {
+      try {
+        const summary = self.posPerformanceMonitor.getSummary();
+        sendResponse({ ok: true, summary });
+      } catch (error) {
+        console.error('Failed to get performance summary:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'Performance monitor not loaded' });
+    }
+    return false;
+  }
+  
+  // 重置统计数据 (新增)
+  if (msg && msg.type === 'RESET_POS_STATS') {
+    if (self.posIntegrationServiceV2) {
+      try {
+        self.posIntegrationServiceV2.resetStats();
+        sendResponse({ ok: true });
+      } catch (error) {
+        console.error('Failed to reset stats:', error);
+        sendResponse({ ok: false, error: error.message });
+      }
+    } else {
+      sendResponse({ ok: false, error: 'POS service V2 not loaded' });
     }
     return false;
   }
@@ -469,6 +802,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => {
         console.error('Ollama generate failed:', err);
         sendResponse({ error: err.message });
+      });
+    return true;
+  }
+
+  // 获取 Ollama 服务状态 (新增)
+  if (msg && msg.type === 'GET_OLLAMA_STATUS') {
+    sendResponse({ 
+      ok: true, 
+      available: ollamaService?.available || false,
+      baseUrl: ollamaService?.baseUrl || null
+    });
+    return false;
+  }
+
+  // 使用 Ollama 进行 POS 分析 (新增)
+  if (msg && msg.type === 'OLLAMA_POS_ANALYZE' && msg.text) {
+    if (!ollamaService?.available) {
+      sendResponse({ ok: false, error: 'Ollama service not available' });
+      return false;
+    }
+
+    analyzeWithOllama(msg.text, msg.sentence)
+      .then(result => sendResponse({ ok: true, result }))
+      .catch(err => {
+        console.error('Ollama POS analysis failed:', err);
+        sendResponse({ ok: false, error: err.message });
       });
     return true;
   }

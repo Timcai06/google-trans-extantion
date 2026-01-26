@@ -31,9 +31,6 @@
         "services/netease-translate-service.js",
         "services/ai-translate-service.js",
         "modules/theme-manager.js",
-        "components/content/complex/VirtualizedTranslationHighlight.js",
-        "components/content/complex/HighlightManager.js",
-        "components/content/complex/PerformanceMonitor.js",
         "core/content.js"
       ],
       "css": [

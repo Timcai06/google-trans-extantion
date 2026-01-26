@@ -121,4 +121,12 @@ class ContentComponent extends BaseComponent {
 }
 
 // 导出Content组件基类
-module.exports = ContentComponent;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ContentComponent;
+}
+
+// 同时导出到全局变量
+if (typeof window !== 'undefined') {
+  window.ContentComponent = ContentComponent;
+}
+

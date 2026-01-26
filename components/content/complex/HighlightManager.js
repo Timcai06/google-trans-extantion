@@ -300,7 +300,12 @@ class HighlightManager {
 window.highlightManager = new HighlightManager();
 
 // 导出管理器
-module.exports = HighlightManager;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = HighlightManager;
+}
 
 // 同时导出到全局变量
-window.HighlightManager = HighlightManager;
+if (typeof window !== 'undefined') {
+  window.HighlightManager = HighlightManager;
+}
+

@@ -52,7 +52,7 @@ export interface POSAnalysisResult {
   /** Analysis results for each word */
   words: WordAnalysis[];
   /** Which approach was used for analysis */
-  approach: 'frontend' | 'nlp' | 'ai';
+  approach: 'frontend' | 'nlp' | 'ai' | 'ollama';
   /** Timestamp when analysis was performed */
   timestamp: number;
   /** Whether this result came from cache */
@@ -119,7 +119,7 @@ export interface UserConfig {
   /** User tier level */
   tier: 'free' | 'paid';
   /** Preferred analysis approach */
-  preferredApproach: 'frontend' | 'nlp' | 'ai' | 'auto';
+  preferredApproach: 'frontend' | 'nlp' | 'ai' | 'ollama' | 'auto';
   /** Whether to enable caching */
   enableCache: boolean;
   /** Color scheme for visualization */

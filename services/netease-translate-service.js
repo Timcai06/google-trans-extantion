@@ -11,6 +11,10 @@ class NeteaseTranslateService {
       apiUrl: 'https://openapi.youdao.com/api'
     };
     
+    // 签名缓存，避免重复计算
+    this.signatureCache = new Map();
+    this.maxCacheSize = 100;
+    
     // 移除构造函数中对init方法的直接调用，改为由模块管理器统一调用
   }
   
@@ -63,12 +67,29 @@ class NeteaseTranslateService {
   }
   
   /**
-   * 计算签名
+   * 计算签名（带缓存）
    */
   calculateSign(q, salt, curtime) {
     const { appKey, secretKey } = this.apiConfig;
+    const cacheKey = `${appKey}:${q}:${salt}:${curtime}:${secretKey}`;
+    
+    // 检查缓存
+    if (this.signatureCache.has(cacheKey)) {
+      return this.signatureCache.get(cacheKey);
+    }
+    
     const signStr = appKey + q + salt + curtime + secretKey;
-    return this.md5(signStr);
+    const sign = this.md5(signStr);
+    
+    // 保存到缓存
+    if (this.signatureCache.size >= this.maxCacheSize) {
+      // 移除最旧的缓存项
+      const firstKey = this.signatureCache.keys().next().value;
+      this.signatureCache.delete(firstKey);
+    }
+    this.signatureCache.set(cacheKey, sign);
+    
+    return sign;
   }
   
   /**
@@ -254,6 +275,37 @@ class NeteaseTranslateService {
    * @returns {Promise<Object>} 翻译结果
    */
   async translate(text, from = 'auto', to = 'zh-CHS', maxRetries = 3, retryDelay = 1000) {
+    // ✓ 修复：通过 Background Script 调用 API，避免 CORS 错误
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'YOUDAO_TRANSLATE',
+        text: text,
+        from: from,
+        to: to
+      });
+      
+      if (response && response.ok && response.result) {
+        return this.parseTranslationResult(response.result.raw || response.result);
+      } else {
+        throw new Error(response.error || '翻译失败');
+      }
+    } catch (error) {
+      console.error('网易翻译失败:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * 翻译文本（旧版本，直接调用 API - 已废弃，保留用于 Background Script）
+   * @param {string} text - 要翻译的文本
+   * @param {string} from - 源语言
+   * @param {string} to - 目标语言
+   * @param {number} maxRetries - 最大重试次数
+   * @param {number} retryDelay - 重试延迟（毫秒）
+   * @returns {Promise<Object>} 翻译结果
+   * @deprecated 此方法仅供 Background Script 使用
+   */
+  async _translateDirect(text, from = 'auto', to = 'zh-CHS', maxRetries = 3, retryDelay = 1000) {
     let retries = 0;
     let lastError = null;
     let lastErrorCode = null;

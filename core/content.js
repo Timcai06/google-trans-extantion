@@ -36,7 +36,8 @@ if (window.trustedTypes && window.trustedTypes.createPolicy) {
 function waitForModules() {
   return new Promise((resolve) => {
     const checkModules = () => {
-      if (window.HighlightManager && window.moduleManager) {
+      // 只检查 moduleManager，不再依赖 HighlightManager
+      if (window.moduleManager) {
         resolve();
       } else {
         setTimeout(checkModules, 100);
@@ -155,7 +156,7 @@ class RequestManager {
     this.requestQueue = []; // 请求队列
     this.maxConcurrentRequests = 3; // 最大并发请求数
     this.runningRequests = 0; // 当前运行的请求数
-    this.requestTimeout = 5000; // 请求超时时间（毫秒）
+    this.requestTimeout = 1500; // 减少到1.5秒，快速失败快速回退
     this.stats = {
       totalRequests: 0,
       mergedRequests: 0,
@@ -1174,7 +1175,7 @@ async function translateText(text, context = '', skipAI = false) {
 
   const rawTranslation = text; // 保存原始文本，作为最后备用
 
-  // 超时处理函数
+  // 超时处理函数 - 减少超时时间以提高响应速度
   const timeoutPromise = new Promise((resolve) => {
     setTimeout(() => {
       console.warn('翻译请求超时，使用备用翻译结果');
@@ -1185,7 +1186,7 @@ async function translateText(text, context = '', skipAI = false) {
         definitions: [], 
         examples: [] 
       });
-    }, 15000); // 增加超时时间给AI
+    }, 2000); // 减少到2秒，快速回退
   });
 
   try {
@@ -1239,8 +1240,8 @@ async function translateText(text, context = '', skipAI = false) {
 
     // 2. 尝试使用 Smart Translate (AI -> Youdao)
     try {
-      // 使用请求管理器处理翻译请求
-      const response = await requestManager.addRequest(text, context, skipAI, 70);
+      // 使用请求管理器处理翻译请求，但设置较低优先级
+      const response = await requestManager.addRequest(text, context, skipAI, 40);
       
       if (response && response.translation) {
         translationResult.translation = response.translation;
@@ -1282,11 +1283,11 @@ async function translateText(text, context = '', skipAI = false) {
       console.error('Smart Translate 失败，将回退到备用方案:', smartErr);
     }
     
-    // 3. 回退到 MyMemory
+    // 3. 回退到 MyMemory（速度快，优先级高）
     try {
       const response = await Promise.race([
         fetch(`${TRANSLATE_API}?q=${encodeURIComponent(text)}&langpair=en|zh-CN`),
-        new Promise((_, r) => setTimeout(() => r(new Error('MyMemory Timeout')), 5000))
+        new Promise((_, r) => setTimeout(() => r(new Error('MyMemory Timeout')), 2000))
       ]);
       const data = await response.json();
       
@@ -1321,6 +1322,8 @@ async function translateText(text, context = '', skipAI = false) {
     }
     
     // 5. 尝试获取字典数据以补充词性和音标信息（如果前面没有获取到完整信息）
+    // TODO: 实现 fetchDictionaryData 函数
+    /*
     try {
       const dictionaryData = await fetchDictionaryData(text);
       if (dictionaryData) {
@@ -1345,6 +1348,7 @@ async function translateText(text, context = '', skipAI = false) {
     } catch (dictErr) {
       console.warn('字典API请求失败，跳过详细信息获取:', dictErr);
     }
+    */
   } catch (error) {
     console.error('翻译错误:', error);
     // 使用备用翻译服务或默认值
@@ -1424,7 +1428,7 @@ async function translateBatch(texts) {
 
   // 超时处理函数
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('批量翻译超时')), 5000); // 5秒超时
+    setTimeout(() => reject(new Error('批量翻译超时')), 2000); // 2秒超时
   });
 
   try {
@@ -1610,7 +1614,7 @@ async function getPhoneticAndPartOfSpeech(word) {
 
   // 超时处理函数
   const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('音标查询超时')), 3000); // 3秒超时
+    setTimeout(() => reject(new Error('音标查询超时')), 1500); // 1.5秒超时
   });
 
   try {

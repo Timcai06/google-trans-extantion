@@ -30,13 +30,40 @@ const getStorageOptimizer = async () => {
       const { batchStorageOps } = await import('./storage-optimizer.js');
       storageOptimizer = batchStorageOps;
     } catch (error) {
-      console.warn('Storage optimizer not available:', error);
-      // 降级到无优化版本
+      console.warn('Storage optimizer not available, using fallback:', error);
+      // 降级到无优化版本 - 提供兼容的接口
       storageOptimizer = {
-        batchSet: chrome.storage.local.set,
-        batchGet: chrome.storage.local.get,
+        batchSet: (data) => {
+          return new Promise((resolve, reject) => {
+            chrome.storage.local.set(data, () => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else {
+                resolve();
+              }
+            });
+          });
+        },
+        batchGet: (keys) => {
+          return new Promise((resolve, reject) => {
+            chrome.storage.local.get(keys, (result) => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else {
+                resolve(result);
+              }
+            });
+          });
+        },
         compress: (data) => JSON.stringify(data),
-        decompress: (data) => JSON.parse(data)
+        decompress: (data) => {
+          try {
+            return JSON.parse(data);
+          } catch (e) {
+            // 如果解析失败，可能是旧格式数据，直接返回
+            return data;
+          }
+        }
       };
     }
   }
@@ -239,7 +266,17 @@ class AdvancedCache {
 
     try {
       const optimizer = await getStorageOptimizer();
-      const result = await optimizer.batchGet([this.storageKey]);
+      // 修复：使用箭头函数确保正确的this绑定
+      const result = await new Promise((resolve, reject) => {
+        chrome.storage.local.get([this.storageKey], (result) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve(result);
+          }
+        });
+      });
+      
       const stored = result[this.storageKey];
 
       if (stored) {
@@ -343,8 +380,16 @@ class AdvancedCache {
       // 压缩数据
       const compressed = optimizer.compress(data);
 
-      // 使用批量写入
-      await optimizer.batchSet({ [this.storageKey]: compressed });
+      // 修复：使用Promise包装chrome.storage.local.set，确保正确的this绑定
+      await new Promise((resolve, reject) => {
+        chrome.storage.local.set({ [this.storageKey]: compressed }, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve();
+          }
+        });
+      });
 
       // 更新上次保存的状态
       this.lastSavedCache = new Map(this.cache);

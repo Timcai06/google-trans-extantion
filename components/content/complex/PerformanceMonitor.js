@@ -389,4 +389,12 @@ class HighlightPerformanceMonitor extends ContentComponent {
 window.highlightPerformanceMonitor = new HighlightPerformanceMonitor();
 
 // 导出组件
-module.exports = HighlightPerformanceMonitor;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = HighlightPerformanceMonitor;
+}
+
+// 同时导出到全局变量
+if (typeof window !== 'undefined') {
+  window.HighlightPerformanceMonitor = HighlightPerformanceMonitor;
+}
+

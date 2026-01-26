@@ -302,6 +302,38 @@ class PerformanceMonitor {
   clear() {
     this.performanceEntries = [];
   }
+  
+  /**
+   * 上报性能数据
+   * 将性能统计信息输出到控制台或发送到服务器
+   */
+  reportPerformance() {
+    const stats = this.getStats();
+    
+    // 输出到控制台
+    console.log('[Performance Report]', {
+      timestamp: new Date(stats.timestamp).toISOString(),
+      translation: {
+        total: stats.translationStats.totalRequests,
+        success: stats.translationStats.successfulRequests,
+        failed: stats.translationStats.failedRequests,
+        avgTime: `${stats.translationStats.avgResponseTime.toFixed(2)}ms`,
+        cacheHitRate: `${(stats.cacheStats.hitRate * 100).toFixed(1)}%`
+      },
+      highlight: {
+        operations: stats.highlightStats.totalHighlightOperations,
+        avgTime: `${stats.highlightStats.avgHighlightTime.toFixed(2)}ms`,
+        maxTime: `${stats.highlightStats.maxHighlightTime.toFixed(2)}ms`
+      },
+      ux: {
+        fps: stats.uxStats.fps,
+        firstTranslation: `${stats.uxStats.firstTranslationTime.toFixed(2)}ms`
+      }
+    });
+    
+    // 可选：发送到服务器进行分析
+    // this._sendToServer(stats);
+  }
 }
 
 // 导出常量和类，供其他模块使用
