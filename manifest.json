@@ -23,19 +23,19 @@
     {
       "matches": ["<all_urls>"],
       "js": [
-        "utils/module-manager.js",
-        "utils/cache-manager.js",
-        "utils/event-manager.js",
-        "utils/performance-monitor.js",
-        "utils/service-degradation-manager.js",
-        "services/netease-translate-service.js",
-        "services/ai-translate-service.js",
-        "modules/theme-manager.js",
-        "core/content.js"
+        "extension/utils/module-manager.js",
+        "extension/utils/cache-manager.js",
+        "extension/utils/event-manager.js",
+        "extension/utils/performance-monitor.js",
+        "extension/utils/service-degradation-manager.js",
+        "extension/services/netease-translate-service.js",
+        "extension/services/ai-translate-service.js",
+        "extension/modules/theme-manager.js",
+        "extension/content/content.js"
       ],
       "css": [
-        "core/content.css",
-        "components/complex/word-drawer-v2.css"
+        "extension/content/content.css",
+        "extension/components/complex/word-drawer-v2.css"
       ],
       "run_at": "document_end",
       "all_frames": true
@@ -43,11 +43,11 @@
   ],
 
   "action": {
-    "default_popup": "popup/popup.html"
+    "default_popup": "extension/popup/popup.html"
   },
 
   "background": {
-    "service_worker": "core/background.js"   
+    "service_worker": "extension/background/background.js"   
   },
 
   "content_security_policy": {
@@ -55,6 +55,6 @@
   },
 
    "icons": {
-    "16": "icon16.png"
+    "16": "assets/icons/icon16.png"
   }
 }
