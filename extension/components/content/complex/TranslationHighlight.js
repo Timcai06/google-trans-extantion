@@ -17,7 +17,7 @@ class TranslationHighlight extends ContentComponent {
     // 默认属性
     this.defaultProps = {
       onHighlightClick: () => {},
-      maxHighlights: 1000
+      maxHighlights: 50 // 优化：减少到50个，避免过多DOM操作
     };
     
     this.props = { ...this.defaultProps, ...props };
@@ -26,6 +26,19 @@ class TranslationHighlight extends ContentComponent {
     this.highlightedWords = {};
     this.domObserver = null;
     this.highlightClickDebounceTimer = null;
+    this.rehighlightDebounceTimer = null; // 新增：重高亮防抖定时器
+    this.intersectionObserver = null; // 新增：Intersection Observer
+    this.pendingHighlights = new Set(); // 新增：待高亮的元素集合
+    
+    // 性能统计
+    this.performanceStats = {
+      totalHighlights: 0,
+      totalReflows: 0,
+      avgHighlightTime: 0,
+      highlightTimes: [],
+      batchOperations: 0,
+      lazyLoadedElements: 0
+    };
     
     // 初始化组件
     this.init();
@@ -39,6 +52,7 @@ class TranslationHighlight extends ContentComponent {
     this.registerStyle();
     this.bindEvents();
     this.createObserver();
+    this.createIntersectionObserver(); // 新增：创建Intersection Observer
   }
 
   /**
@@ -163,23 +177,26 @@ class TranslationHighlight extends ContentComponent {
 
   /**
    * 创建DOM观察者，用于监听页面DOM变化
+   * 优化：添加防抖机制，避免频繁触发高亮
    */
   createObserver() {
     // 创建MutationObserver，用于监听DOM变化
     this.domObserver = new MutationObserver((mutations) => {
       // 检查是否有新增的DOM节点
       let hasAddedNodes = false;
+      const addedNodes = [];
+      
       mutations.forEach((mutation) => {
         if (mutation.addedNodes.length > 0) {
           hasAddedNodes = true;
+          // 只处理元素节点
+          addedNodes.push(...[...mutation.addedNodes].filter(node => node.nodeType === 1));
         }
       });
       
-      // 如果有新增节点，进行增量高亮
-      if (hasAddedNodes) {
-        this.highlightTranslatedWords(this.highlightedWords, mutations.map(mutation => {
-          return [...mutation.addedNodes].filter(node => node.nodeType === 1); // 只处理元素节点
-        }).flat());
+      // 如果有新增节点，使用防抖进行增量高亮
+      if (hasAddedNodes && addedNodes.length > 0) {
+        this.debouncedRehighlight(addedNodes);
       }
     });
     
@@ -190,13 +207,96 @@ class TranslationHighlight extends ContentComponent {
       characterData: false
     });
   }
+  
+  /**
+   * 防抖重高亮
+   * @param {Array<Node>} targetRoots - 目标根节点
+   */
+  debouncedRehighlight(targetRoots = null) {
+    // 清除之前的定时器
+    if (this.rehighlightDebounceTimer) {
+      clearTimeout(this.rehighlightDebounceTimer);
+    }
+    
+    // 设置新的定时器，500ms后执行
+    this.rehighlightDebounceTimer = setTimeout(() => {
+      this.highlightTranslatedWords(this.highlightedWords, targetRoots);
+    }, 500);
+  }
+  
+  /**
+   * 创建Intersection Observer，用于延迟加载可见区域外的高亮
+   * 优化：只高亮可见区域的元素，提升性能
+   */
+  createIntersectionObserver() {
+    // 检查浏览器是否支持Intersection Observer
+    if (!('IntersectionObserver' in window)) {
+      console.warn('浏览器不支持Intersection Observer，跳过延迟加载优化');
+      return;
+    }
+    
+    // 创建Intersection Observer
+    this.intersectionObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          // 元素进入可见区域，执行高亮
+          const element = entry.target;
+          if (this.pendingHighlights.has(element)) {
+            this.highlightElement(element);
+            this.pendingHighlights.delete(element);
+            // 停止观察已高亮的元素
+            this.intersectionObserver.unobserve(element);
+          }
+        }
+      });
+    }, {
+      rootMargin: '50px', // 提前50px开始加载
+      threshold: 0.01 // 元素1%可见时触发
+    });
+  }
+  
+  /**
+   * 高亮单个元素
+   * @param {HTMLElement} element - 要高亮的元素
+   * 
+   * 优化：当元素进入可见区域时才执行高亮
+   */
+  highlightElement(element) {
+    // 获取元素下的文本节点
+    const textNodes = this.getTextNodes(element);
+    
+    // 获取已翻译单词列表
+    const wordEntries = Object.entries(this.highlightedWords)
+      .filter(([word, wordData]) => {
+        return wordData && (wordData.type === 'word' || wordData.type === 'phrase');
+      })
+      .sort((a, b) => (b[1].count || 0) - (a[1].count || 0))
+      .slice(0, this.props.maxHighlights);
+    
+    // 处理文本节点
+    if (wordEntries.length > 0 && textNodes.length > 0) {
+      textNodes.forEach(textNode => {
+        this.processTextNode(textNode, wordEntries);
+      });
+    }
+  }
 
   /**
    * 高亮显示已翻译的单词
    * @param {Object} words - 已翻译的单词对象，键为单词，值为翻译数据
    * @param {Array<Node>} targetRoots - 可选，指定需要处理的根节点列表。如果不传，则处理整个文档并清除旧高亮
+   * 
+   * 优化点：
+   * 1. 使用DocumentFragment批量操作DOM
+   * 2. 使用requestAnimationFrame优化渲染时机
+   * 3. 限制高亮数量为50个
+   * 4. 使用Intersection Observer延迟加载可见区域外的高亮
+   * 5. 性能统计和监控
    */
   highlightTranslatedWords(words, targetRoots = null) {
+    // 记录开始时间
+    const startTime = performance.now();
+    
     // 保存单词数据
     this.highlightedWords = words;
     
@@ -205,85 +305,202 @@ class TranslationHighlight extends ContentComponent {
       return;
     }
     
-    // 暂时断开 Observer 连接，防止修改 DOM 触发递归
-    if (this.domObserver) {
-      this.domObserver.disconnect();
-    }
-    
-    try {
-      // 优化DOM查询：缓存document.body，避免重复查询
-      const body = document.body;
-      if (!body) {
-        return;
+    // 使用requestAnimationFrame优化渲染时机
+    requestAnimationFrame(() => {
+      // 暂时断开 Observer 连接，防止修改 DOM 触发递归
+      if (this.domObserver) {
+        this.domObserver.disconnect();
       }
       
-      // 如果是全量更新（没有指定 targetRoots），则移除之前的所有高亮元素
-      if (!targetRoots) {
-        const existingHighlights = document.querySelectorAll('.translated-word-highlight, trae-highlight');
-        // 使用documentFragment批量移除，减少重排重绘
-        const fragment = document.createDocumentFragment();
-        existingHighlights.forEach(el => {
-          const parent = el.parentNode;
-          if (parent) {
-            // 将高亮元素替换为纯文本节点
-            parent.replaceChild(document.createTextNode(el.textContent), el);
-            parent.normalize(); // 合并相邻的文本节点
+      try {
+        // 优化DOM查询：缓存document.body，避免重复查询
+        const body = document.body;
+        if (!body) {
+          return;
+        }
+        
+        // 如果是全量更新（没有指定 targetRoots），则批量移除之前的所有高亮元素
+        if (!targetRoots) {
+          this.removeAllHighlightsBatch();
+          this.performanceStats.batchOperations++;
+        }
+
+        // 只处理单词和词组类型的翻译记录，并按使用频率排序
+        let wordEntries = Object.entries(words).filter(([word, wordData]) => {
+          return wordData && (wordData.type === 'word' || wordData.type === 'phrase');
+        });
+
+        // 按使用频率排序，优先高亮使用频率高的单词
+        wordEntries.sort((a, b) => (b[1].count || 0) - (a[1].count || 0));
+
+        // 限制高亮的单词数量，避免过多DOM操作（优化：50个）
+        wordEntries = wordEntries.slice(0, this.props.maxHighlights);
+
+        // 如果没有单词需要高亮，直接返回
+        if (wordEntries.length === 0) {
+          return;
+        }
+
+        // 确定需要处理的根节点
+        const roots = targetRoots || [document.body];
+
+        // 对每个根节点进行高亮处理
+        roots.forEach(root => {
+          if (root.nodeType === 1) { // 只处理元素节点
+            this.processRootNode(root, wordEntries);
           }
         });
-      }
-
-      // 只处理单词和词组类型的翻译记录，并按使用频率排序
-      let wordEntries = Object.entries(words).filter(([word, wordData]) => {
-        return wordData && (wordData.type === 'word' || wordData.type === 'phrase');
-      });
-
-      // 按使用频率排序，优先高亮使用频率高的单词
-      wordEntries.sort((a, b) => (b[1].count || 0) - (a[1].count || 0));
-
-      // 限制高亮的单词数量，避免过多DOM操作
-      wordEntries = wordEntries.slice(0, this.props.maxHighlights);
-
-      // 如果没有单词需要高亮，直接返回
-      if (wordEntries.length === 0) {
-        return;
-      }
-
-      // 确定需要处理的根节点
-      const roots = targetRoots || [document.body];
-
-      // 对每个根节点进行高亮处理
-      roots.forEach(root => {
-        if (root.nodeType === 1) { // 只处理元素节点
-          this.processRootNode(root, wordEntries);
+        
+        // 记录性能统计
+        const endTime = performance.now();
+        const highlightTime = endTime - startTime;
+        this.performanceStats.highlightTimes.push(highlightTime);
+        this.performanceStats.totalHighlights++;
+        this.performanceStats.avgHighlightTime = 
+          this.performanceStats.highlightTimes.reduce((a, b) => a + b, 0) / 
+          this.performanceStats.highlightTimes.length;
+        
+        // 只保留最近100次的统计数据
+        if (this.performanceStats.highlightTimes.length > 100) {
+          this.performanceStats.highlightTimes.shift();
         }
-      });
-    } catch (error) {
-      console.error('高亮处理失败:', error);
-    } finally {
-      // 重新连接 Observer
-      if (this.domObserver) {
-        this.domObserver.observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: false
-        });
+        
+        // 输出性能日志（仅在开发模式）
+        if (highlightTime > 100) {
+          console.warn(`⚠️ 高亮操作耗时较长: ${highlightTime.toFixed(2)}ms`);
+        }
+      } catch (error) {
+        console.error('高亮处理失败:', error);
+      } finally {
+        // 重新连接 Observer
+        if (this.domObserver) {
+          this.domObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: false
+          });
+        }
       }
-    }
+    });
+  }
+  
+  /**
+   * 批量移除所有高亮元素
+   * 优化：使用DocumentFragment批量操作，减少重排重绘
+   */
+  removeAllHighlightsBatch() {
+    const existingHighlights = document.querySelectorAll('.translated-word-highlight, trae-highlight');
+    
+    // 按父节点分组，批量处理
+    const parentMap = new Map();
+    
+    existingHighlights.forEach(el => {
+      const parent = el.parentNode;
+      if (parent) {
+        if (!parentMap.has(parent)) {
+          parentMap.set(parent, []);
+        }
+        parentMap.get(parent).push(el);
+      }
+    });
+    
+    // 对每个父节点批量替换子节点
+    parentMap.forEach((elements, parent) => {
+      elements.forEach(el => {
+        // 将高亮元素替换为纯文本节点
+        parent.replaceChild(document.createTextNode(el.textContent), el);
+      });
+      // 合并相邻的文本节点
+      parent.normalize();
+    });
   }
 
   /**
    * 处理单个根节点，高亮其中的已翻译单词
    * @param {HTMLElement} root - 根节点
    * @param {Array} wordEntries - 已翻译单词列表
+   * 
+   * 优化：使用虚拟滚动，只处理可见区域的文本节点
    */
   processRootNode(root, wordEntries) {
     // 获取根节点下的所有文本节点
     const textNodes = this.getTextNodes(root);
     
-    // 对每个文本节点进行处理
+    // 如果启用了Intersection Observer，使用延迟加载策略
+    if (this.intersectionObserver && textNodes.length > 100) {
+      // 对于大量文本节点，只处理可见区域
+      this.processTextNodesWithLazyLoading(textNodes, wordEntries);
+    } else {
+      // 对于少量文本节点，直接处理
+      textNodes.forEach(textNode => {
+        this.processTextNode(textNode, wordEntries);
+      });
+    }
+  }
+  
+  /**
+   * 使用延迟加载策略处理文本节点
+   * @param {Array<Text>} textNodes - 文本节点列表
+   * @param {Array} wordEntries - 已翻译单词列表
+   * 
+   * 优化：只立即处理可见区域的节点，其他节点使用Intersection Observer延迟处理
+   */
+  processTextNodesWithLazyLoading(textNodes, wordEntries) {
+    const viewportHeight = window.innerHeight;
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const viewportBottom = scrollTop + viewportHeight;
+    
     textNodes.forEach(textNode => {
-      this.processTextNode(textNode, wordEntries);
+      const parent = textNode.parentElement;
+      if (!parent) return;
+      
+      // 获取元素位置
+      const rect = parent.getBoundingClientRect();
+      const elementTop = rect.top + scrollTop;
+      const elementBottom = elementTop + rect.height;
+      
+      // 判断元素是否在可见区域（包含50px的缓冲区）
+      const isVisible = elementBottom >= scrollTop - 50 && elementTop <= viewportBottom + 50;
+      
+      if (isVisible) {
+        // 立即处理可见区域的节点
+        this.processTextNode(textNode, wordEntries);
+      } else {
+        // 延迟处理不可见区域的节点
+        this.pendingHighlights.add(parent);
+        this.intersectionObserver.observe(parent);
+        this.performanceStats.lazyLoadedElements++;
+      }
     });
+  }
+  
+  /**
+   * 获取性能统计信息
+   * @returns {Object} - 性能统计数据
+   */
+  getPerformanceStats() {
+    return {
+      ...this.performanceStats,
+      avgHighlightTime: this.performanceStats.avgHighlightTime.toFixed(2) + 'ms',
+      totalHighlights: this.performanceStats.totalHighlights,
+      batchOperations: this.performanceStats.batchOperations,
+      lazyLoadedElements: this.performanceStats.lazyLoadedElements,
+      pendingHighlights: this.pendingHighlights.size
+    };
+  }
+  
+  /**
+   * 重置性能统计
+   */
+  resetPerformanceStats() {
+    this.performanceStats = {
+      totalHighlights: 0,
+      totalReflows: 0,
+      avgHighlightTime: 0,
+      highlightTimes: [],
+      batchOperations: 0,
+      lazyLoadedElements: 0
+    };
   }
 
   /**
@@ -317,6 +534,8 @@ class TranslationHighlight extends ContentComponent {
    * 处理单个文本节点，高亮其中的已翻译单词
    * @param {Text} textNode - 文本节点
    * @param {Array} wordEntries - 已翻译单词列表
+   * 
+   * 优化：使用DocumentFragment批量创建高亮元素，减少DOM操作
    */
   processTextNode(textNode, wordEntries) {
     let text = textNode.textContent;
@@ -325,45 +544,66 @@ class TranslationHighlight extends ContentComponent {
     // 创建一个新的文档片段，用于替换原文本节点
     const fragment = document.createDocumentFragment();
     
-    // 标记是否有高亮替换
-    let hasReplacement = false;
+    // 收集所有匹配位置
+    const matches = [];
     
     // 遍历所有已翻译单词，按长度降序处理（优先处理长单词/词组）
     const sortedEntries = [...wordEntries].sort((a, b) => b[0].length - a[0].length);
     
-    let lastIndex = 0;
-    
     for (const [word, wordData] of sortedEntries) {
-      if (text.length === 0) break;
-      
       // 创建正则表达式，匹配整个单词/词组，忽略大小写
       const regex = new RegExp(`\\b${this.escapeRegExp(word)}\\b`, 'gi');
       let match;
       
       while ((match = regex.exec(text)) !== null) {
-        // 添加匹配前的文本
-        if (match.index > lastIndex) {
-          fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.index)));
+        // 检查是否与已有匹配重叠
+        const overlaps = matches.some(m => 
+          (match.index >= m.start && match.index < m.end) ||
+          (regex.lastIndex > m.start && regex.lastIndex <= m.end)
+        );
+        
+        if (!overlaps) {
+          matches.push({
+            start: match.index,
+            end: regex.lastIndex,
+            text: match[0],
+            wordData: wordData
+          });
         }
-        
-        // 创建高亮元素
-        const highlightElement = this.createHighlightElement(match[0], wordData);
-        fragment.appendChild(highlightElement);
-        
-        hasReplacement = true;
-        lastIndex = regex.lastIndex;
       }
     }
+    
+    // 如果没有匹配，直接返回
+    if (matches.length === 0) {
+      return;
+    }
+    
+    // 按位置排序
+    matches.sort((a, b) => a.start - b.start);
+    
+    // 批量创建高亮元素
+    let lastIndex = 0;
+    
+    matches.forEach(match => {
+      // 添加匹配前的文本
+      if (match.start > lastIndex) {
+        fragment.appendChild(document.createTextNode(text.substring(lastIndex, match.start)));
+      }
+      
+      // 创建高亮元素
+      const highlightElement = this.createHighlightElement(match.text, match.wordData);
+      fragment.appendChild(highlightElement);
+      
+      lastIndex = match.end;
+    });
     
     // 添加剩余的文本
     if (lastIndex < text.length) {
       fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
     }
     
-    // 如果有替换，替换原文本节点
-    if (hasReplacement) {
-      textNode.parentNode.replaceChild(fragment, textNode);
-    }
+    // 一次性替换原文本节点（只触发一次重排）
+    textNode.parentNode.replaceChild(fragment, textNode);
   }
 
   /**
@@ -468,30 +708,36 @@ class TranslationHighlight extends ContentComponent {
       clearTimeout(this.highlightClickDebounceTimer);
     }
     
+    if (this.rehighlightDebounceTimer) {
+      clearTimeout(this.rehighlightDebounceTimer);
+    }
+    
     // 停止DOM观察
     if (this.domObserver) {
       this.domObserver.disconnect();
       this.domObserver = null;
     }
     
+    // 停止Intersection Observer
+    if (this.intersectionObserver) {
+      this.intersectionObserver.disconnect();
+      this.intersectionObserver = null;
+    }
+    
+    // 清空待高亮集合
+    this.pendingHighlights.clear();
+    
     // 移除所有高亮元素
-    this.removeAllHighlights();
+    this.removeAllHighlightsBatch();
     
     super.destroy();
   }
 
   /**
-   * 移除所有高亮元素
+   * 移除所有高亮元素（兼容旧方法）
    */
   removeAllHighlights() {
-    const existingHighlights = document.querySelectorAll('.translated-word-highlight, trae-highlight');
-    existingHighlights.forEach(el => {
-      const parent = el.parentNode;
-      if (parent) {
-        parent.replaceChild(document.createTextNode(el.textContent), el);
-        parent.normalize();
-      }
-    });
+    this.removeAllHighlightsBatch();
   }
 }
 

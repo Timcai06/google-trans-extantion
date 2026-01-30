@@ -81,6 +81,22 @@
   --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
   
+  /* 动画持续时间变量 */
+  --animation-duration-fast: 200ms;
+  --animation-duration-normal: 300ms;
+  --animation-duration-slow: 500ms;
+  --animation-duration-slower: 800ms;
+  --animation-duration-slowest: 1000ms;
+  
+  /* 动画缓动函数变量 */
+  --animation-timing-linear: linear;
+  --animation-timing-ease: ease;
+  --animation-timing-ease-in: ease-in;
+  --animation-timing-ease-out: ease-out;
+  --animation-timing-ease-in-out: ease-in-out;
+  --animation-timing-cubic: cubic-bezier(0.4, 0, 0.2, 1);
+  --animation-timing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  
   /* Splash动画变量 */
   --splash-duration: 2.0s;
 

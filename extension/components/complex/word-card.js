@@ -38,11 +38,45 @@ class WordCard extends BaseComponent {
     
     this.props = { ...this.defaultProps, ...props };
     this.state = {
-      starred: this.props.starred
+      starred: this.props.starred,
+      posStats: null // POS statistics from POS_Result_Index
     };
     
-    // 初始化组件
+    // Initialize component
     this.init();
+    
+    // Load POS statistics if available
+    this.loadPOSStats();
+  }
+  
+  /**
+   * Load POS statistics from POS_Result_Index
+   */
+  async loadPOSStats() {
+    if (typeof POSResultIndex !== 'undefined' && window.posResultIndex) {
+      try {
+        const stats = window.posResultIndex.getWordPOSStats(this.props.word);
+        if (stats && stats.total > 0) {
+          this.setState({ posStats: stats });
+          this.updatePOSDisplay();
+        }
+      } catch (error) {
+        console.error('[Word Card] Failed to load POS stats:', error);
+      }
+    }
+  }
+  
+  /**
+   * Update POS statistics display
+   */
+  updatePOSDisplay() {
+    if (!this.state.posStats || !this.element) return;
+    
+    const posContainer = this.element.querySelector('.word-card-pos-stats');
+    if (posContainer && this.state.posStats.mostCommon) {
+      posContainer.textContent = `词性: ${this.state.posStats.mostCommon} (${this.state.posStats.total}次)`;
+      posContainer.style.display = 'block';
+    }
   }
   
   /**
