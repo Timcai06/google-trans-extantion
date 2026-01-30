@@ -23,14 +23,13 @@
     {
       "matches": ["<all_urls>"],
       "js": [
+        "extension/utils/trie-index.js",
+        "extension/utils/word-index-manager.js",
+        "extension/utils/dynamic-loader.js",
         "extension/utils/module-manager.js",
         "extension/utils/cache-manager.js",
         "extension/utils/event-manager.js",
-        "extension/utils/performance-monitor.js",
-        "extension/utils/service-degradation-manager.js",
-        "extension/services/netease-translate-service.js",
-        "extension/services/ai-translate-service.js",
-        "extension/modules/theme-manager.js",
+        "extension/components/utils/style-manager.js",
         "extension/content/content.js"
       ],
       "css": [

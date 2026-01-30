@@ -30,12 +30,22 @@
     ],
     "testMatch": [
       "**/__tests__/**/*.ts",
-      "**/?(*.)+(spec|test).ts"
+      "**/?(*.)+(spec|test).ts",
+      "**/__tests__/**/*.js",
+      "**/?(*.)+(spec|test).js"
+    ],
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!.*\\.js$)"
     ],
     "collectCoverageFrom": [
       "src/**/*.ts",
       "!src/**/*.d.ts",
-      "!src/types/**"
+      "!src/types/**",
+      "extension/utils/**/*.js",
+      "!extension/utils/**/*.test.js"
     ],
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/src/$1"
