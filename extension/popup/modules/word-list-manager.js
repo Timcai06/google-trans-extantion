@@ -770,6 +770,16 @@ async function setStarState(word, starred) {
   await chrome.storage.local.set({ translatedWords: words });
   window.wordsData = words;
   await window.buildIndex();
+  
+  // Update Word_Index_Manager if available
+  if (window.wordIndexManager) {
+    try {
+      window.wordIndexManager.updateMetadata(matchedKey, { starred: !!starred });
+    } catch (error) {
+      console.error('[Word List Manager] Failed to update Word_Index_Manager:', error);
+    }
+  }
+  
   window.searchCache.clear();
 }
 
@@ -806,6 +816,16 @@ async function deleteWord(word) {
     
     // 重新构建索引并清空搜索缓存
     await window.buildIndex();
+    
+    // Remove from Word_Index_Manager if available
+    if (window.wordIndexManager) {
+      try {
+        window.wordIndexManager.remove(matchedKey);
+      } catch (error) {
+        console.error('[Word List Manager] Failed to remove from Word_Index_Manager:', error);
+      }
+    }
+    
     window.searchCache.clear();
   }
 }
@@ -853,6 +873,15 @@ async function clearAllWords() {
         // 清空所有记录
         await chrome.storage.local.remove(['translatedWords']);
         window.wordsData = {};
+        
+        // Reset Word_Index_Manager
+        if (window.wordIndexManager) {
+          try {
+            window.wordIndexManager.reset();
+          } catch (error) {
+            console.error('[Word List Manager] Failed to reset Word_Index_Manager:', error);
+          }
+        }
       } else if (currentFilter === 'starred') {
         // 清空所有星标记录
         Object.keys(words).forEach(key => {

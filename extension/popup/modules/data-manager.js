@@ -27,6 +27,9 @@ window.isDataLoaded = false;
 // 缓存的单词数组，用于提高搜索性能
 window.cachedWordArray = [];
 
+// Word_Index_Manager instance for optimized word lookups
+window.wordIndexManager = null;
+
 if (!window.__popupStorageChangeListenerBound) {
   window.__popupStorageChangeListenerBound = true;
   chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -95,6 +98,28 @@ window.buildIndex = async function buildIndex() {
     key: key,
     ...window.wordsData[key]
   }));
+
+  // Initialize Word_Index_Manager if not already initialized
+  if (!window.wordIndexManager) {
+    // Dynamically load WordIndexManager if available
+    if (typeof WordIndexManager !== 'undefined') {
+      window.wordIndexManager = new WordIndexManager({
+        storageKey: 'popup_word_index',
+        persistDelay: 2000
+      });
+    }
+  }
+
+  // Build optimized Trie index for fast word lookups
+  if (window.wordIndexManager) {
+    try {
+      await window.wordIndexManager.buildIndex(window.cachedWordArray);
+      console.log('[Data Manager] Word_Index_Manager built successfully');
+    } catch (error) {
+      console.error('[Data Manager] Failed to build Word_Index_Manager:', error);
+      // Continue with fallback indexing
+    }
+  }
 
   const CHUNK_SIZE = 200; // 每批处理200个单词
 
@@ -174,9 +199,31 @@ window.getFilteredData = function getFilteredData(typeFilter = 'all', searchTerm
     data = [...window.wordsIndex.all];
   }
 
-  // 搜索过滤
+  // 搜索过滤 - use Word_Index_Manager for prefix search if available
   if (searchTerm) {
-    data = window.performSearch(data, searchTerm);
+    // Try using Word_Index_Manager for optimized search
+    if (window.wordIndexManager && searchTerm.trim().split(/\s+/).length === 1) {
+      try {
+        // Single word search - use prefix search from Trie
+        const prefixResults = window.wordIndexManager.search(searchTerm.trim());
+        if (prefixResults && prefixResults.length > 0) {
+          // Filter by type
+          data = prefixResults.filter(item => {
+            if (typeFilter === 'starred') return item.starred;
+            if (typeFilter === 'all') return true;
+            return item.type === typeFilter;
+          });
+        } else {
+          data = [];
+        }
+      } catch (error) {
+        console.error('[Data Manager] Word_Index_Manager search failed, falling back:', error);
+        data = window.performSearch(data, searchTerm);
+      }
+    } else {
+      // Multi-word search or fallback - use traditional search
+      data = window.performSearch(data, searchTerm);
+    }
   }
 
   // 缓存结果（限制缓存大小）

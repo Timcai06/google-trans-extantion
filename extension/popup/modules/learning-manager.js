@@ -15,6 +15,44 @@ class LearningManager {
       startTime: null,
       mistakes: []
     };
+    
+    // Initialize Review_Queue_Manager if available
+    this.reviewQueueManager = null;
+    this.initReviewQueue();
+  }
+  
+  /**
+   * Initialize Review_Queue_Manager for optimized review scheduling
+   */
+  async initReviewQueue() {
+    if (typeof ReviewQueueManager !== 'undefined' && !this.reviewQueueManager) {
+      try {
+        this.reviewQueueManager = new ReviewQueueManager({
+          storageKey: 'learning_review_queue',
+          persistDelay: 2000
+        });
+        
+        // Load existing queue from storage
+        const loaded = await this.reviewQueueManager.load();
+        if (!loaded) {
+          // Build queue from learning progress
+          const result = await chrome.storage.local.get(['learningProgress']);
+          const progress = result.learningProgress || {};
+          const words = Object.keys(progress).map(key => ({
+            word: key,
+            ...progress[key]
+          }));
+          
+          // Add words to queue
+          if (words.length > 0) {
+            this.reviewQueueManager.batchAdd(words);
+          }
+        }
+        console.log('[Learning Manager] Review_Queue_Manager initialized');
+      } catch (error) {
+        console.error('[Learning Manager] Failed to initialize Review_Queue_Manager:', error);
+      }
+    }
   }
 
   /**
@@ -83,44 +121,77 @@ class LearningManager {
     const wordEntries = Object.entries(words);
     let filteredWords = [];
     
-    // 先根据筛选条件过滤，减少后续排序的数据量
-    for (const [key, word] of wordEntries) {
-      let shouldInclude = true;
-      
-      // 根据筛选条件快速判断是否包含
-      switch (filter) {
-        case 'words':
-          shouldInclude = word.type === 'word';
-          break;
-        case 'phrases':
-          shouldInclude = word.type === 'phrase';
-          break;
-        case 'sentences':
-          shouldInclude = word.type === 'sentence';
-          break;
-        case 'starred':
-          shouldInclude = !!word.starred;
-          break;
-        case 'difficult':
-          // 复习难点：答错过的单词（correctCount < reviewCount）
-          const wordProgressDiff = progress[word.word || word.key];
-          shouldInclude = wordProgressDiff && 
-            wordProgressDiff.reviewCount > 0 && 
-            wordProgressDiff.correctCount < wordProgressDiff.reviewCount;
-          break;
+    // Try using Word_Index_Manager for optimized filtering if available
+    if (window.wordIndexManager && filter === 'all') {
+      try {
+        // Get all words from index
+        const stats = window.wordIndexManager.getStats();
+        if (stats.wordCount > 0) {
+          // Use index to get all words efficiently
+          filteredWords = wordEntries.map(([key, word]) => {
+            const indexedWord = window.wordIndexManager.find(key);
+            if (indexedWord) {
+              return indexedWord;
+            }
+            return { key, ...word };
+          });
+        }
+      } catch (error) {
+        console.error('[Learning Manager] Word_Index_Manager filtering failed, falling back:', error);
       }
-      
-      if (shouldInclude) {
-        // 预计算进度信息，避免重复计算
+    }
+    
+    // Fallback to traditional filtering if index not available or for specific filters
+    if (filteredWords.length === 0) {
+      // 先根据筛选条件过滤，减少后续排序的数据量
+      for (const [key, word] of wordEntries) {
+        let shouldInclude = true;
+        
+        // 根据筛选条件快速判断是否包含
+        switch (filter) {
+          case 'words':
+            shouldInclude = word.type === 'word';
+            break;
+          case 'phrases':
+            shouldInclude = word.type === 'phrase';
+            break;
+          case 'sentences':
+            shouldInclude = word.type === 'sentence';
+            break;
+          case 'starred':
+            shouldInclude = !!word.starred;
+            break;
+          case 'difficult':
+            // 复习难点：答错过的单词（correctCount < reviewCount）
+            const wordProgressDiff = progress[word.word || word.key];
+            shouldInclude = wordProgressDiff && 
+              wordProgressDiff.reviewCount > 0 && 
+              wordProgressDiff.correctCount < wordProgressDiff.reviewCount;
+            break;
+        }
+        
+        if (shouldInclude) {
+          // 预计算进度信息，避免重复计算
+          const wordKey = word.word || word.key;
+          const wordProgress = progress[wordKey] || { masteryLevel: 0, lastReviewed: 0 };
+          
+          // 添加到结果数组，并附加预计算的进度信息
+          filteredWords.push({
+            ...word,
+            _progress: wordProgress
+          });
+        }
+      }
+    } else {
+      // Add progress info to indexed words
+      filteredWords = filteredWords.map(word => {
         const wordKey = word.word || word.key;
         const wordProgress = progress[wordKey] || { masteryLevel: 0, lastReviewed: 0 };
-        
-        // 添加到结果数组，并附加预计算的进度信息
-        filteredWords.push({
+        return {
           ...word,
           _progress: wordProgress
-        });
-      }
+        };
+      });
     }
     
     // 根据学习进度排序（优先学习掌握程度低的单词）
@@ -684,13 +755,15 @@ class LearningManager {
           reviewCount: 0,
           correctCount: 0,
           lastReviewed: Date.now(),
-          nextReview: Date.now()
+          nextReview: Date.now(),
+          difficulty: 1.0
         };
       }
       
       const wordProgress = progress[wordKey];
       wordProgress.reviewCount++;
       wordProgress.lastReviewed = Date.now();
+      wordProgress.lastReviewTime = Date.now(); // For Review_Queue_Manager
       
       if (isCorrect) {
         wordProgress.correctCount++;
@@ -706,6 +779,15 @@ class LearningManager {
       wordProgress.nextReview = Date.now() + (interval * 24 * 60 * 60 * 1000);
       
       await chrome.storage.local.set({ learningProgress: progress });
+      
+      // Update Review_Queue_Manager if available
+      if (this.reviewQueueManager) {
+        try {
+          this.reviewQueueManager.updateAfterReview(wordKey, isCorrect);
+        } catch (error) {
+          console.error('[Learning Manager] Failed to update Review_Queue_Manager:', error);
+        }
+      }
       
       if (isCorrect) {
         this.sessionStats.correct++;

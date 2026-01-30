@@ -13,6 +13,30 @@ class DashboardManager {
             settings: {}
         };
         this.initialized = false;
+        
+        // Initialize Review_Queue_Manager if available
+        this.reviewQueueManager = null;
+        this.initReviewQueue();
+    }
+    
+    /**
+     * Initialize Review_Queue_Manager for dashboard stats
+     */
+    async initReviewQueue() {
+        if (typeof ReviewQueueManager !== 'undefined' && !this.reviewQueueManager) {
+            try {
+                this.reviewQueueManager = new ReviewQueueManager({
+                    storageKey: 'dashboard_review_queue',
+                    persistDelay: 3000
+                });
+                
+                // Load existing queue from storage
+                await this.reviewQueueManager.load();
+                console.log('[Dashboard Manager] Review_Queue_Manager initialized');
+            } catch (error) {
+                console.error('[Dashboard Manager] Failed to initialize Review_Queue_Manager:', error);
+            }
+        }
     }
 
     /**
@@ -82,6 +106,16 @@ class DashboardManager {
             totalReviews++; // 简化：假设每条进度记录代表一次复习周期
         });
         const masteryRate = totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0;
+        
+        // Get review queue stats if available
+        let reviewStats = { totalWords: 0, dueNow: 0, dueToday: 0 };
+        if (this.reviewQueueManager) {
+            try {
+                reviewStats = this.reviewQueueManager.getStats();
+            } catch (error) {
+                console.error('[Dashboard Manager] Failed to get review queue stats:', error);
+            }
+        }
 
         return {
             weekHours,
@@ -89,7 +123,8 @@ class DashboardManager {
             streak,
             totalWords,
             todayCount: todayData.wordsLearned ? todayData.wordsLearned.length : 0,
-            dailyGoal: this.data.settings.dailyGoal || 20
+            dailyGoal: this.data.settings.dailyGoal || 20,
+            reviewQueue: reviewStats // Add review queue stats
         };
     }
 
