@@ -35,15 +35,6 @@ export interface Context {
 }
 
 /**
- * Grammar patterns used for POS identification
- */
-export type Pattern = 
-  | 'determiner_participle_noun'    // e.g., "a broken window"
-  | 'intensifier_participle'        // e.g., "very excited"
-  | 'be_participle_by'              // e.g., "was written by"
-  | 'linking_verb_participle';      // e.g., "is broken"
-
-/**
  * Complete result of POS analysis for a sentence
  */
 export interface POSAnalysisResult {
@@ -102,32 +93,32 @@ export interface CacheStats {
 }
 
 /**
- * Color scheme for POS visualization
+ * Grammar patterns used for POS identification
+ * Extended with all common patterns
  */
-export interface ColorScheme {
-  noun: string;
-  verb: string;
-  adjective: string;
-  adverb: string;
-  unknown: string;
-}
+export type Pattern =
+  | 'determiner_participle_noun'    // e.g., "a broken window"
+  | 'intensifier_participle'        // e.g., "very excited"
+  | 'be_participle_by'              // e.g., "was written by"
+  | 'linking_verb_participle'       // e.g., "is broken"
+  | 'be_ing_object'                 // e.g., "is eating apple"
+  | 'have_ed'                       // e.g., "have eaten"
+  | 'have_been_ed'                  // e.g., "have been eaten"
+  | 'verb_object'                   // e.g., "eat apple"
+  | 'prep_phrase'                   // e.g., "in the house"
+  | 'adverb_adjective'              // e.g., "very good"
+  | 'compound_nouns'                // e.g., "coffee shop"
+  | 'passive_voice'                 // e.g., "was built"
+  | 'causative_make'                // e.g., "make it happen"
+  | 'phrasal_verb'                  // e.g., "give up"
+  | 'auxiliary_main';               // e.g., "will go"
 
-/**
- * User configuration
- */
-export interface UserConfig {
-  /** User tier level */
-  tier: 'free' | 'paid';
-  /** Preferred analysis approach */
-  preferredApproach: 'frontend' | 'nlp' | 'ai' | 'ollama' | 'auto';
-  /** Whether to enable caching */
-  enableCache: boolean;
-  /** Color scheme for visualization */
-  colorScheme: ColorScheme;
-}
+// Re-export types from config to avoid duplication
+export { ColorScheme, UserConfig, DEFAULT_COLOR_SCHEME } from '../config/user-config';
 
 /**
  * Irregular verb mapping entry
+ * Re-export from data module for consistency
  */
 export interface IrregularVerb {
   /** Base form of the verb */
