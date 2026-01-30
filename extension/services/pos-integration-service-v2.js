@@ -29,6 +29,10 @@ class POSIntegrationServiceV2 {
     this.configManager = new UserConfigManager();
     this.colorMapper = new SimpleColorMapper();
     
+    // Initialize POS_Result_Index if available
+    this.posResultIndex = null;
+    this.initPOSIndex();
+    
     // Performance tracking
     this.stats = {
       totalRequests: 0,
@@ -43,6 +47,34 @@ class POSIntegrationServiceV2 {
     
     // Initialize service factory
     this.initialize();
+  }
+  
+  /**
+   * Initialize POS_Result_Index for optimized POS result storage
+   */
+  async initPOSIndex() {
+    if (typeof POSResultIndex !== 'undefined' && !this.posResultIndex) {
+      try {
+        this.posResultIndex = new POSResultIndex({
+          storageKey: 'pos_service_index',
+          maxEntries: 5000,
+          maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+        });
+        
+        // Load existing index from storage
+        await this.posResultIndex.load();
+        
+        // Perform cleanup on initialization
+        const removed = this.posResultIndex.cleanup();
+        if (removed > 0) {
+          console.log(`[POS Service V2] Cleaned up ${removed} old POS results`);
+        }
+        
+        console.log('[POS Service V2] POS_Result_Index initialized');
+      } catch (error) {
+        console.error('[POS Service V2] Failed to initialize POS_Result_Index:', error);
+      }
+    }
   }
 
   /**
@@ -68,11 +100,47 @@ class POSIntegrationServiceV2 {
     this.stats.totalRequests++;
 
     try {
+      // Check POS_Result_Index first for cached results
+      if (this.posResultIndex) {
+        try {
+          const cachedResult = this.posResultIndex.getPOSForSentence(sentence);
+          if (cachedResult) {
+            this.stats.cacheHits++;
+            
+            // Apply colors to cached result
+            const coloredResult = this.applyColors(cachedResult);
+            
+            return {
+              ...coloredResult,
+              latency: Date.now() - startTime,
+              approach: cachedResult.approach || 'cached',
+              cacheHit: true
+            };
+          }
+        } catch (error) {
+          console.error('[POS Service V2] Failed to retrieve from POS_Result_Index:', error);
+        }
+      }
+      
       // Get user configuration
       const userConfig = await this.configManager.getConfig();
 
       // Analyze with fallback
       const result = await this.serviceFactory.analyzeWithFallback(sentence, userConfig);
+
+      // Store result in POS_Result_Index
+      if (this.posResultIndex && result.words && result.words.length > 0) {
+        try {
+          this.posResultIndex.addResult(sentence, {
+            sentence: result.sentence,
+            words: result.words,
+            approach: result.approach,
+            timestamp: Date.now()
+          });
+        } catch (error) {
+          console.error('[POS Service V2] Failed to store in POS_Result_Index:', error);
+        }
+      }
 
       // Track statistics
       this.trackStatistics(result);
