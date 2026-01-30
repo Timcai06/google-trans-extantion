@@ -11,6 +11,10 @@ const CACHE_CONFIG = {
   SHORT_EXPIRY: 60 * 60 * 1000,
   // 最大缓存容量 (Reduced for memory optimization)
   MAX_CACHE_SIZE: 500,
+  // 持久化存储最大条目数（新增）
+  MAX_PERSISTENT_ENTRIES: 5000,
+  // 持久化存储清理阈值（90%时触发清理）
+  CLEANUP_THRESHOLD: 0.9,
   // 容量满时清理比例
   CLEANUP_RATIO: 0.2,
   // 持久化存储键前缀
@@ -18,7 +22,10 @@ const CACHE_CONFIG = {
   // 启用持久化存储
   ENABLE_PERSISTENCE: true,
   // 压缩阈值（字节）
-  COMPRESSION_THRESHOLD: 1024
+  COMPRESSION_THRESHOLD: 1024,
+  // 缓存预热配置
+  WARMUP_ENABLED: true,
+  WARMUP_TOP_WORDS: 100
 };
 
 // 导入存储优化工具（延迟导入避免循环依赖）
@@ -26,11 +33,39 @@ let storageOptimizer = null;
 const getStorageOptimizer = async () => {
   if (!storageOptimizer) {
     try {
-      // 动态导入存储优化器
-      const { batchStorageOps } = await import('./storage-optimizer.js');
-      storageOptimizer = batchStorageOps;
+      // 检查是否在浏览器环境中
+      if (typeof chrome === 'undefined' || !chrome.runtime) {
+        throw new Error('Not in Chrome extension environment');
+      }
+      
+      // 验证扩展上下文
+      if (!chrome.runtime || !chrome.runtime.id) {
+        throw new Error('Extension context is invalid');
+      }
+      
+      // 尝试动态导入存储优化器
+      const scriptPath = chrome.runtime.getURL('extension/utils/storage-optimizer.js');
+      
+      // 使用script标签加载（更可靠）
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = scriptPath;
+        script.onload = () => {
+          // 检查是否成功加载
+          if (window.batchStorageOps || self.batchStorageOps) {
+            storageOptimizer = window.batchStorageOps || self.batchStorageOps;
+            resolve();
+          } else {
+            reject(new Error('Storage optimizer not found after loading'));
+          }
+        };
+        script.onerror = () => reject(new Error('Failed to load storage optimizer'));
+        (document.head || document.documentElement || document.body).appendChild(script);
+      });
+      
+      console.log('✅ Storage optimizer loaded successfully');
     } catch (error) {
-      console.warn('Storage optimizer not available, using fallback:', error);
+      console.warn('⚠️ Storage optimizer not available, using fallback:', error.message);
       // 降级到无优化版本 - 提供兼容的接口
       storageOptimizer = {
         batchSet: (data) => {
@@ -71,9 +106,11 @@ const getStorageOptimizer = async () => {
 };
 
 /**
- * 高级缓存类，支持容量限制、优先级管理和持久化存储
- * 优化：合并 usageCount 到 cache 值中，减少 Map 开销
- * 优化：防抖保存到存储，减少 IO
+ * 高级缓存类，支持LRU策略、容量限制和持久化存储
+ * 优化1：使用LRU（最近最少使用）替代FIFO策略
+ * 优化2：持久化存储上限控制
+ * 优化3：缓存预热机制
+ * 优化4：防抖保存到存储，减少IO
  */
 class AdvancedCache {
   constructor(name, maxSize = CACHE_CONFIG.MAX_CACHE_SIZE, expiry = CACHE_CONFIG.DEFAULT_EXPIRY, enablePersistence = CACHE_CONFIG.ENABLE_PERSISTENCE) {
@@ -81,6 +118,7 @@ class AdvancedCache {
     this.maxSize = maxSize;
     this.expiry = expiry;
     this.enablePersistence = enablePersistence;
+    // 使用Map实现LRU：Map保持插入顺序，最新访问的移到末尾
     this.cache = new Map();
     this.storageKey = `${CACHE_CONFIG.STORAGE_PREFIX}${name}`;
     this.saveTimer = null; // For debouncing
@@ -105,7 +143,7 @@ class AdvancedCache {
   }
   
   /**
-   * 获取缓存项
+   * 获取缓存项（LRU策略）
    * @param {string} key - 缓存键
    * @returns {Object|null} 缓存值，如果过期或不存在则返回null
    */
@@ -125,32 +163,43 @@ class AdvancedCache {
       return null;
     }
     
-    // 更新使用频率
+    // LRU策略：将访问的项移到最后（最近使用）
+    this.cache.delete(key);
+    this.cache.set(key, cached);
+    
+    // 更新使用频率（用于统计）
     cached.usage = (cached.usage || 0) + 1;
+    cached.lastAccess = Date.now();
     
     this.stats.hits++;
     return cached;
   }
   
   /**
-   * 设置缓存项
+   * 设置缓存项（LRU策略）
    * @param {string} key - 缓存键
    * @param {Object} value - 缓存值
    */
   set(key, value) {
+    // 如果key已存在，先删除（LRU：重新插入会放到末尾）
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    }
+    
+    // 检查容量限制，使用LRU清理
+    if (this.cache.size >= this.maxSize) {
+      this.cleanupLRU();
+    }
+    
     // 确保值包含timestamp和usage
     const cachedValue = {
       ...value,
       timestamp: Date.now(),
+      lastAccess: Date.now(),
       usage: 1
     };
     
-    // 检查容量限制
-    if (this.cache.size >= this.maxSize) {
-      this.cleanup();
-    }
-    
-    // 设置缓存
+    // 设置缓存（会自动放到Map的末尾）
     this.cache.set(key, cachedValue);
     
     // 保存到持久化存储
@@ -160,36 +209,36 @@ class AdvancedCache {
   }
   
   /**
-   * 清理过期和不常用的缓存项
-   * 优化：使用快速选择算法，避免全量排序，提高性能
+   * LRU清理：删除最旧的缓存项
+   * Map的迭代顺序就是插入顺序，第一个就是最旧的
    */
-  cleanup() {
+  cleanupLRU() {
     // 计算需要清理的数量
     const itemsToClean = Math.ceil(this.maxSize * CACHE_CONFIG.CLEANUP_RATIO);
     
-    // 如果缓存大小小于最大容量，不需要清理
-    if (this.cache.size <= this.maxSize) {
-      return;
-    }
-    
-    // 转换为数组以便处理
-    const cacheEntries = [...this.cache.entries()];
-    
-    // 使用快速选择算法找到需要清理的缓存项
-    // 只选择前 itemsToClean 个最不常用的缓存项
-    const itemsToRemove = this._findLeastUsedItems(cacheEntries, itemsToClean);
-    
-    // 清理指定的缓存项
-    itemsToRemove.forEach(item => {
-      this.cache.delete(item.key);
+    // 删除最旧的项（Map的前面几项）
+    let deleted = 0;
+    for (const [key] of this.cache) {
+      if (deleted >= itemsToClean) break;
+      this.cache.delete(key);
       this.stats.deletes++;
-    });
+      deleted++;
+    }
     
     // 保存到持久化存储
     this.debouncedSave();
     
     this.stats.cleanups++;
     this.stats.lastCleanupTime = Date.now();
+  }
+  
+  /**
+   * 清理过期和不常用的缓存项（保留旧方法作为备用）
+   * 优化：使用快速选择算法，避免全量排序，提高性能
+   */
+  cleanup() {
+    // 优先使用LRU清理
+    this.cleanupLRU();
   }
   
   /**
@@ -260,6 +309,7 @@ class AdvancedCache {
   /**
    * 从持久化存储加载缓存
    * 优化：支持压缩数据解压、批量读取和版本控制的增量同步
+   * 新增：持久化存储上限检查
    */
   async loadFromStorage() {
     if (!this.enablePersistence) return;
@@ -290,6 +340,14 @@ class AdvancedCache {
               entries = data;
         }
 
+        // 检查持久化存储是否超过上限
+        if (entries.length > CACHE_CONFIG.MAX_PERSISTENT_ENTRIES) {
+          console.warn(`持久化存储超过上限(${entries.length}/${CACHE_CONFIG.MAX_PERSISTENT_ENTRIES})，执行清理`);
+          // 只保留最近的条目（按timestamp排序）
+          entries.sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
+          entries = entries.slice(0, CACHE_CONFIG.MAX_PERSISTENT_ENTRIES);
+        }
+
         // 根据数据类型处理缓存加载
         if (data.type === 'incremental') {
           // 增量加载：将新的缓存项合并到现有缓存中
@@ -311,10 +369,13 @@ class AdvancedCache {
         // 简单迁移：如果没有 usage 字段，初始化为 1
         this.cache.forEach((val, key) => {
             if (val.usage === undefined) val.usage = 1;
+            if (val.lastAccess === undefined) val.lastAccess = val.timestamp || Date.now();
         });
 
         // 保存加载后的缓存状态，用于增量保存
         this.lastSavedCache = new Map(this.cache);
+        
+        console.log(`缓存${this.name}加载完成: ${this.cache.size}条`);
       }
     } catch (error) {
       console.warn(`加载缓存${this.name}失败:`, error);
@@ -477,6 +538,90 @@ class AdvancedCache {
       cleanups: 0,
       lastCleanupTime: Date.now()
     };
+  }
+  
+  /**
+   * 缓存预热：预加载高频词汇
+   * @param {Function} getTopWordsFunc - 获取高频词汇的函数
+   * @param {Function} translateFunc - 翻译函数
+   * @param {number} count - 预热词汇数量
+   */
+  async warmup(getTopWordsFunc, translateFunc, count = CACHE_CONFIG.WARMUP_TOP_WORDS) {
+    if (!CACHE_CONFIG.WARMUP_ENABLED) {
+      console.log('缓存预热已禁用');
+      return;
+    }
+    
+    try {
+      console.log(`开始缓存预热: ${this.name}，预热${count}个高频词汇`);
+      const startTime = Date.now();
+      
+      // 获取高频词汇
+      const topWords = await getTopWordsFunc(count);
+      
+      let warmedCount = 0;
+      for (const word of topWords) {
+        // 检查是否已缓存
+        const cached = this.get(word);
+        if (!cached) {
+          try {
+            // 翻译并缓存
+            const result = await translateFunc(word);
+            this.set(word, result);
+            warmedCount++;
+          } catch (error) {
+            console.warn(`预热词汇${word}失败:`, error);
+          }
+        }
+      }
+      
+      const endTime = Date.now();
+      console.log(`缓存预热完成: ${warmedCount}/${topWords.length}个词汇，耗时${endTime - startTime}ms`);
+    } catch (error) {
+      console.error('缓存预热失败:', error);
+    }
+  }
+  
+  /**
+   * 检查并清理持久化存储
+   * 当存储接近上限时自动清理
+   */
+  async checkAndCleanPersistentStorage() {
+    if (!this.enablePersistence) return;
+    
+    try {
+      // 获取当前存储大小
+      const bytesInUse = await new Promise((resolve) => {
+        chrome.storage.local.getBytesInUse(null, (bytes) => {
+          resolve(bytes);
+        });
+      });
+      
+      // Chrome Storage API限制：5MB
+      const STORAGE_LIMIT = 5 * 1024 * 1024;
+      const threshold = STORAGE_LIMIT * CACHE_CONFIG.CLEANUP_THRESHOLD;
+      
+      if (bytesInUse > threshold) {
+        console.warn(`持久化存储接近上限(${(bytesInUse / 1024 / 1024).toFixed(2)}MB/${(STORAGE_LIMIT / 1024 / 1024).toFixed(2)}MB)，执行清理`);
+        
+        // 清理最旧的20%缓存项
+        const itemsToClean = Math.ceil(this.cache.size * 0.2);
+        let deleted = 0;
+        
+        for (const [key] of this.cache) {
+          if (deleted >= itemsToClean) break;
+          this.cache.delete(key);
+          deleted++;
+        }
+        
+        // 立即保存
+        await this.saveToStorage();
+        
+        console.log(`持久化存储清理完成: 删除${deleted}条，剩余${this.cache.size}条`);
+      }
+    } catch (error) {
+      console.error('检查持久化存储失败:', error);
+    }
   }
 }
 
