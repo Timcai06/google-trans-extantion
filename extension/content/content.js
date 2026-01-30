@@ -139,6 +139,38 @@ const definitionTranslationCache = new AdvancedCache('definitionTranslationCache
 // 短期缓存 - 用于临时数据，如上下文分析结果
 const shortTermCache = new AdvancedCache('shortTermCache', 50, CACHE_CONFIG.SHORT_EXPIRY, false);
 
+// Word_Index_Manager instance for optimized word lookups in content script
+let contentWordIndexManager = null;
+
+// Initialize Word_Index_Manager for content script
+async function initContentWordIndex() {
+  if (typeof WordIndexManager !== 'undefined' && !contentWordIndexManager) {
+    try {
+      contentWordIndexManager = new WordIndexManager({
+        storageKey: 'content_word_index',
+        persistDelay: 5000 // Longer delay for content script
+      });
+      
+      // Load existing index from storage
+      const loaded = await contentWordIndexManager.load();
+      if (!loaded) {
+        // Build index from current words
+        const result = await chrome.storage.local.get(['translatedWords']);
+        const words = result.translatedWords || {};
+        const wordArray = Object.keys(words).map(key => ({
+          key: key,
+          word: key,
+          ...words[key]
+        }));
+        await contentWordIndexManager.buildIndex(wordArray);
+      }
+      console.log('[Content Script] Word_Index_Manager initialized');
+    } catch (error) {
+      console.error('[Content Script] Failed to initialize Word_Index_Manager:', error);
+    }
+  }
+}
+
 // 加载状态管理
 const loadingStates = new Map();
 
@@ -361,22 +393,101 @@ const eventDelegateManager = new EventDelegateManager();
 // 性能监控
 // ====================
 
-// 全局性能监控实例
-const performanceMonitor = new PerformanceMonitor();
+// 全局性能监控实例（延迟初始化）
+let performanceMonitor = null;
+
+// 安全的性能监控包装器
+const safePerformanceMonitor = {
+  start: (label) => {
+    return performanceMonitor ? safePerformanceMonitor.start(label) : null;
+  },
+  end: (perfId, label, data) => {
+    if (performanceMonitor && perfId) {
+      safePerformanceMonitor.end(perfId, label, data);
+    }
+  },
+  reportPerformance: () => {
+    if (performanceMonitor) {
+      safePerformanceMonitor.reportPerformance();
+    }
+  }
+};
+
+// 延迟加载性能监控模块
+async function initPerformanceMonitor() {
+  try {
+    if (window.dynamicLoader && !performanceMonitor) {
+      await window.dynamicLoader.loadScript('extension/utils/performance-monitor.js', {
+        priority: 'low',
+        timeout: 5000
+      });
+      
+      if (window.PerformanceMonitor) {
+        performanceMonitor = new window.PerformanceMonitor();
+        console.log('✅ Performance monitor initialized');
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ Performance monitor not available:', error);
+  }
+}
 
 // 定期上报性能数据（每30秒）
 setInterval(() => {
-  performanceMonitor.reportPerformance();
+  safePerformanceMonitor.reportPerformance();
 }, 30000);
+
+// 延迟1秒后初始化性能监控（非关键模块）
+setTimeout(() => {
+  initPerformanceMonitor();
+}, 1000);
 
 // ====================
 // 服务降级管理器
 // ====================
 
+// 全局服务降级管理器实例（延迟初始化）
+let serviceDegradationManager = null;
 
+// 安全的服务降级管理器包装器
+const safeServiceDegradationManager = {
+  checkAndDegrade: (metric, value) => {
+    if (serviceDegradationManager) {
+      return serviceDegradationManager.checkAndDegrade(metric, value);
+    }
+    return false;
+  },
+  getCurrentLevel: () => {
+    return serviceDegradationManager ? serviceDegradationManager.getCurrentLevel() : 0;
+  },
+  getConfig: () => {
+    return serviceDegradationManager ? serviceDegradationManager.getConfig() : {};
+  }
+};
 
-// 全局服务降级管理器实例
-const serviceDegradationManager = new ServiceDegradationManager();
+// 延迟加载服务降级管理器
+async function initServiceDegradationManager() {
+  try {
+    if (window.dynamicLoader && !serviceDegradationManager) {
+      await window.dynamicLoader.loadScript('extension/utils/service-degradation-manager.js', {
+        priority: 'normal',
+        timeout: 5000
+      });
+      
+      if (window.ServiceDegradationManager) {
+        serviceDegradationManager = new window.ServiceDegradationManager();
+        console.log('✅ Service degradation manager initialized');
+      }
+    }
+  } catch (error) {
+    console.warn('⚠️ Service degradation manager not available:', error);
+  }
+}
+
+// 延迟500ms后初始化服务降级管理器（重要但非关键模块）
+setTimeout(() => {
+  initServiceDegradationManager();
+}, 500);
 
 // ====================
 // 防抖定时器
@@ -626,7 +737,7 @@ async function preloadWordDataBatch(wordKeys) {
  * @param {Array<Node>} targetRoots - 可选，指定需要处理的根节点列表
  */
 async function highlightTranslatedWords(words, targetRoots = null) {
-  const perfId = performanceMonitor.start('highlightTranslatedWords');
+  const perfId = safePerformanceMonitor.start('highlightTranslatedWords');
   
   try {
     // 使用优化后的高亮管理器
@@ -637,13 +748,13 @@ async function highlightTranslatedWords(words, targetRoots = null) {
       await highlightTranslatedWordsFallback(words, targetRoots);
     }
     
-    performanceMonitor.end(perfId, 'highlightTranslatedWords', { 
+    safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { 
       wordsCount: Object.keys(words).length,
       optimized: true
     });
   } catch (error) {
     console.error('高亮处理失败:', error);
-    performanceMonitor.end(perfId, 'highlightTranslatedWords', { 
+    safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { 
       wordsCount: 0, 
       error: error.message 
     });
@@ -654,12 +765,12 @@ async function highlightTranslatedWords(words, targetRoots = null) {
  * 降级的高亮实现（原有逻辑）
  */
 async function highlightTranslatedWordsFallback(words, targetRoots = null) {
-  const perfId = performanceMonitor.start('highlightTranslatedWords');
+  const perfId = safePerformanceMonitor.start('highlightTranslatedWords');
   
   try {
     // 检查当前域名是否允许运行插件
     if (!isDomainAllowed()) {
-      performanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: 0, skipped: true });
+      safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: 0, skipped: true });
       return;
     }
     
@@ -671,7 +782,7 @@ async function highlightTranslatedWordsFallback(words, targetRoots = null) {
     // 优化DOM查询：缓存document.body，避免重复查询
     const body = document.body;
     if (!body) {
-      performanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: 0, skipped: true });
+      safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: 0, skipped: true });
       return;
     }
 
@@ -705,7 +816,7 @@ async function highlightTranslatedWordsFallback(words, targetRoots = null) {
 
     // 如果没有单词需要高亮，直接返回
     if (wordEntries.length === 0) {
-      performanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: 0 });
+      safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: 0 });
       return;
     }
 
@@ -722,6 +833,17 @@ async function highlightTranslatedWordsFallback(words, targetRoots = null) {
     // 创建单词映射，用于快速查找
     const wordMap = new Map();
     
+    // Try using Word_Index_Manager for optimized word lookup if available
+    let useOptimizedIndex = false;
+    if (contentWordIndexManager) {
+      try {
+        const stats = contentWordIndexManager.getStats();
+        useOptimizedIndex = stats.wordCount > 0;
+      } catch (error) {
+        console.error('[Content Script] Word_Index_Manager stats failed:', error);
+      }
+    }
+    
     // 优化正则表达式：预编译并缓存正则表达式
     // 优化：提前检查单词长度，避免空单词影响正则表达式
     const validWordEntries = wordEntries.filter(([word]) => word && word.trim().length > 0);
@@ -735,6 +857,13 @@ async function highlightTranslatedWordsFallback(words, targetRoots = null) {
     const originalWordMap = new Map();
     validWordEntries.forEach(([word, wordData]) => {
       originalWordMap.set(word.toLowerCase(), word);
+      
+      // Build word map for quick lookup
+      const wordLower = word.toLowerCase();
+      wordMap.set(wordLower, { 
+        wordData, 
+        posClass: wordData.type === 'phrase' ? 'pos-phrase' : getPartOfSpeechClass(wordData.partOfSpeech || '') 
+      });
     });
     
     // 创建单词边界正则表达式，用于一次性匹配所有单词
@@ -880,7 +1009,7 @@ async function highlightTranslatedWordsFallback(words, targetRoots = null) {
     });
   
   // 结束性能监控
-  performanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: wordEntries.length });
+  safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { wordsCount: wordEntries.length });
   
   // 恢复观察，使用与初始化时相同的配置
   if (domObserver) {
@@ -897,7 +1026,7 @@ async function highlightTranslatedWordsFallback(words, targetRoots = null) {
   
   } catch (error) {
     console.error('降级高亮处理失败:', error);
-    performanceMonitor.end(perfId, 'highlightTranslatedWords', { 
+    safePerformanceMonitor.end(perfId, 'highlightTranslatedWords', { 
       wordsCount: 0, 
       error: error.message 
     });
@@ -1151,14 +1280,14 @@ function getContextFromRange(range) {
  * @returns {Promise<Object>} 完整的翻译结果对象，包含translation、partOfSpeech、phonetic、definitions、examples等
  */
 async function translateText(text, context = '', skipAI = false) {
-  const perfId = performanceMonitor.start('translateText');
+  const perfId = safePerformanceMonitor.start('translateText');
   
   const cacheKey = text.toLowerCase().trim();
 
   // 检查翻译缓存，带过期时间
   const cached = translationCache.get(cacheKey);
   if (cached && cached.translation && (Date.now() - cached.timestamp < CACHE_CONFIG.DEFAULT_EXPIRY)) {
-    performanceMonitor.end(perfId, 'translateText', {
+    safePerformanceMonitor.end(perfId, 'translateText', {
       text: text.slice(0, 50),
       fromCache: true
     });
@@ -1213,7 +1342,7 @@ async function translateText(text, context = '', skipAI = false) {
           });
           
           // 结束性能监控
-          performanceMonitor.end(perfId, 'translateText', {
+          safePerformanceMonitor.end(perfId, 'translateText', {
             text: text.slice(0, 50),
             fromCache: false,
             success: translationResult.translation !== '翻译失败'
@@ -1271,7 +1400,7 @@ async function translateText(text, context = '', skipAI = false) {
         });
 
         // 结束性能监控
-        performanceMonitor.end(perfId, 'translateText', {
+        safePerformanceMonitor.end(perfId, 'translateText', {
           text: text.slice(0, 50),
           fromCache: false,
           success: translationResult.translation !== '翻译失败'
@@ -1362,7 +1491,7 @@ async function translateText(text, context = '', skipAI = false) {
   });
 
   // 结束性能监控
-  performanceMonitor.end(perfId, 'translateText', {
+  safePerformanceMonitor.end(perfId, 'translateText', {
     text: text.slice(0, 50),
     fromCache: false,
     success: translationResult.translation !== '翻译失败'
@@ -2045,83 +2174,6 @@ async function getPhonetic(word) {
 }
 
 /**
- * 处理高亮单词的点击事件
- * 显示单词的详细信息工具提示，包括翻译、音标、词性等
- *
- * @param {Event} e - 点击事件对象
- */
-async function handleHighlightClick(e) {
-  e.stopPropagation(); // 阻止事件冒泡，避免触发其他点击事件
-  e.preventDefault(); // 阻止默认行为
-
-  const highlight = e.target;
-  const word = highlight.dataset.word;
-  const translation = highlight.dataset.translation;
-
-  // 更新单词的使用统计信息
-  const result = await chrome.storage.local.get(['translatedWords']);
-  const words = result.translatedWords || {};
-  const wordLower = word.toLowerCase();
-  const now = Date.now();
-
-  if (words[wordLower]) {
-    // 增加单词的使用计数
-    words[wordLower].count += 1;
-    words[wordLower].lastUsed = new Date().toISOString();
-    
-    // 添加查询历史记录
-    if (!words[wordLower].lookupHistory) {
-      words[wordLower].lookupHistory = [];
-    }
-    words[wordLower].lookupHistory.push(now);
-    // 清理30天前的记录
-    const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
-    words[wordLower].lookupHistory = words[wordLower].lookupHistory.filter(t => t > thirtyDaysAgo);
-    
-    await chrome.storage.local.set({ translatedWords: words });
-
-    // 获取更新后的使用次数
-    const updatedCount = words[wordLower].count;
-
-    // 获取词性信息（优先从存储中获取）
-    let partOfSpeech = words[wordLower].partOfSpeech || highlight.dataset.partOfSpeech;
-
-    // 获取音标信息（如果还没有缓存）
-    let phonetic = highlight.dataset.phonetic;
-
-    if (!phonetic || (!partOfSpeech && !highlight.dataset.partOfSpeech)) {
-      const phoneticData = await getPhoneticAndPartOfSpeech(word);
-      if (phoneticData.phonetic) {
-        phonetic = phoneticData.phonetic;
-        highlight.dataset.phonetic = phonetic;
-      }
-      if (phoneticData.partOfSpeech) {
-        partOfSpeech = phoneticData.partOfSpeech;
-        highlight.dataset.partOfSpeech = partOfSpeech;
-        // 更新存储中的词性信息
-        words[wordLower].partOfSpeech = partOfSpeech;
-        await chrome.storage.local.set({ translatedWords: words });
-      }
-    }
-
-    // 如果存储中有词性但元素属性中没有，同步更新元素属性
-    if (words[wordLower].partOfSpeech && !highlight.dataset.partOfSpeech) {
-      partOfSpeech = words[wordLower].partOfSpeech;
-      highlight.dataset.partOfSpeech = partOfSpeech;
-    }
-    
-    // 先显示提示框（使用当前元素位置，避免重新高亮后位置变化）
-  await showClickTooltip(highlight, word, translation, updatedCount, phonetic, partOfSpeech, words[wordLower].type);
-  
-  // 然后重新高亮显示以更新所有高亮元素的计数和dataset
-  // 使用延迟确保提示框已经显示
-  setTimeout(() => {
-    highlightTranslatedWords(words);
-  }, 100);
-  }
-}
-
-/**
  * 统一渲染翻译弹窗
  * @param {Object} options - 弹窗配置选项
  */
@@ -2139,7 +2191,7 @@ async function renderPopup({
   mode = 'simple', // 'simple' 或 'full'
   posAnalysis = null // 新增：POS分析结果
 }) {
-  const perfId = performanceMonitor.start('renderPopup');
+  const perfId = safePerformanceMonitor.start('renderPopup');
   
   // 调试日志：检查数据是否正确传入
   console.debug('renderPopup called', {
@@ -2294,7 +2346,7 @@ async function renderPopup({
   }, 100);
   
   // 结束性能监控
-  performanceMonitor.end(perfId, 'renderPopup', {
+  safePerformanceMonitor.end(perfId, 'renderPopup', {
     text: text.slice(0, 20),
     hasMeanings: meanings && meanings.length > 0
   });
@@ -3130,6 +3182,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       highlightTranslatedWords(words);
     });
   }
+  
+  // Rebuild Word_Index_Manager when words change
+  if (areaName === 'local' && changes.translatedWords && contentWordIndexManager) {
+    const newWords = changes.translatedWords.newValue || {};
+    const wordArray = Object.keys(newWords).map(key => ({
+      key: key,
+      word: key,
+      ...newWords[key]
+    }));
+    contentWordIndexManager.buildIndex(wordArray).catch(error => {
+      console.error('[Content Script] Failed to rebuild Word_Index_Manager:', error);
+    });
+  }
 });
 
 // 使用事件委托处理所有高亮元素的点击事件
@@ -3165,6 +3230,7 @@ const startInit = async () => {
     // 再次检查扩展上下文是否有效
     if (chrome.runtime && chrome.runtime.id) {
       await initModules(); // 初始化所有模块
+      await initContentWordIndex(); // Initialize Word_Index_Manager for content script
       await initHighlighting();
     }
   };

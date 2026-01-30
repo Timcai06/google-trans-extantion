@@ -303,26 +303,62 @@ async function translateWithYoudao(text) {
 
 
 /**
- * 智能翻译聚合函数
- * 优先尝试 AI 翻译，失败则回退到有道
+ * 智能翻译聚合函数（优化版）
+ * 使用并行请求和超时控制，提升响应速度
+ * 
+ * 优化点：
+ * 1. 并行尝试AI和有道翻译
+ * 2. 为每个服务设置独立超时
+ * 3. 返回第一个成功的结果
+ * 4. 失败缓存和请求去重
+ * 
  * @param {string} text - 待翻译文本
  * @param {string} context - 上下文
  * @param {boolean} skipAI - 是否跳过AI翻译（仅使用普通翻译API）
+ * @param {boolean} useParallel - 是否使用并行模式（默认true）
  */
-async function smartTranslate(text, context, skipAI = false) {
+async function smartTranslate(text, context, skipAI = false, useParallel = true) {
+  // 如果使用并行模式且不跳过AI
+  if (useParallel && !skipAI && typeof self.translateWithParallelFallback === 'function') {
+    try {
+      // 配置服务列表
+      const services = [
+        {
+          name: 'ai',
+          fn: self.translateWithAI,
+          timeout: self.API_TIMEOUTS?.ai || 5000
+        },
+        {
+          name: 'youdao',
+          fn: translateWithYoudao,
+          timeout: self.API_TIMEOUTS?.youdao || 3000
+        }
+      ];
+      
+      // 并行尝试所有服务
+      const result = await self.translateWithParallelFallback(text, context, services);
+      
+      // 处理结果
+      return await processTranslationResult(result, text, context);
+    } catch (error) {
+      console.error('Parallel translation failed:', error);
+      // 降级到串行模式
+      return smartTranslate(text, context, skipAI, false);
+    }
+  }
+  
+  // 串行模式（原有逻辑）
   const startTime = Date.now();
   
-  // 1. 尝试 AI 翻译 (如果不跳过) - 但设置更短的超时
+  // 1. 尝试 AI 翻译 (如果不跳过)
   if (!skipAI) {
     try {
-      // 使用 Promise.race 限制 AI 翻译的等待时间为 1 秒
       const aiResult = await Promise.race([
         self.translateWithAI(text, context),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 1000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 5000))
       ]);
       const latency = Date.now() - startTime;
       
-      // 记录成功 metrics
       if (typeof recordTranslation === 'function') {
         recordTranslation('ai', true, latency);
       }
@@ -334,7 +370,7 @@ async function smartTranslate(text, context, skipAI = false) {
         raw: aiResult
       };
     } catch (aiError) {
-      console.log('AI translation skipped/failed, falling back to Youdao:', aiError.message);
+      console.log('AI translation failed, falling back to Youdao:', aiError.message);
     }
   }
     
@@ -343,93 +379,100 @@ async function smartTranslate(text, context, skipAI = false) {
     const youdaoResult = await translateWithYoudao(text);
     const latency = Date.now() - startTime;
     
-    // 记录 fallback metrics
     if (typeof recordTranslation === 'function') {
       recordTranslation('youdao', true, latency);
     }
     
-    // 增强返回数据：从 raw 中提取更多信息
-    const result = {
-      translation: youdaoResult.translation,
-      basic: youdaoResult.basic || (youdaoResult.raw ? youdaoResult.raw.basic : null),
-      source: 'youdao',
-      raw: youdaoResult.raw
-    };
-    
-    // 如果有 raw 数据，提取额外信息
-    if (youdaoResult.raw) {
-      // 提取音标
-      if (youdaoResult.raw.basic) {
-        result.phonetic = youdaoResult.raw.basic.phonetic || 
-                         youdaoResult.raw.basic['uk-phonetic'] || 
-                         youdaoResult.raw.basic['us-phonetic'] || '';
-        result.partOfSpeech = youdaoResult.raw.basic.explains && youdaoResult.raw.basic.explains[0] 
-          ? youdaoResult.raw.basic.explains[0].split('.')[0] + '.' 
-          : '';
-      }
-      
-      // 提取释义
-      if (youdaoResult.raw.basic && youdaoResult.raw.basic.explains) {
-        result.definitions = youdaoResult.raw.basic.explains.map(explain => ({
-          text: explain,
-          translation: explain
-        }));
-      }
-      
-      // 提取例句
-      if (youdaoResult.raw.web) {
-        result.examples = youdaoResult.raw.web.slice(0, 3).map(item => ({
-          source: item.key,
-          target: Array.isArray(item.value) ? item.value.join('；') : item.value
-        }));
-      }
-      
-      // 提取网络释义
-      result.web = youdaoResult.raw.web || null;
-    }
-    
-    // 3. 添加词性分析 (Requirement 9.1, 9.5, 11.1-11.5)
-    // Try V2 service first (with AI support), fallback to V1
-    const posService = self.posIntegrationServiceV2 || self.posIntegrationService;
-    
-    if (posService && context) {
-      try {
-        const posAnalysis = await posService.analyzeWord(text, context);
-        result.posAnalysis = {
-          pos: posAnalysis.pos,
-          color: posAnalysis.color,
-          confidence: posAnalysis.confidence,
-          approach: posAnalysis.approach || 'frontend',
-          cached: posAnalysis.cached
-        };
-        
-        console.log('POS analysis added:', result.posAnalysis);
-      } catch (posError) {
-        console.warn('POS analysis failed:', posError);
-        // POS analysis failure should not break translation
-      }
-    }
-    
-    // 调试日志
-    console.log('smartTranslate 返回数据:', {
-      hasBasic: !!result.basic,
-      basicKeys: result.basic ? Object.keys(result.basic) : [],
-      hasDefinitions: !!result.definitions,
-      definitionsCount: result.definitions ? result.definitions.length : 0,
-      hasExamples: !!result.examples,
-      examplesCount: result.examples ? result.examples.length : 0,
-      hasPOS: !!result.posAnalysis
-    });
-    
-    return result;
+    return await processTranslationResult({
+      ...youdaoResult,
+      source: 'youdao'
+    }, text, context);
   } catch (finalError) {
     const latency = Date.now() - startTime;
-    // 记录失败
     if (typeof recordTranslation === 'function') {
       recordTranslation('all', false, latency);
     }
     throw finalError;
   }
+}
+
+/**
+ * 处理翻译结果，提取和增强数据
+ * @param {Object} result - 原始翻译结果
+ * @param {string} text - 原始文本
+ * @param {string} context - 上下文
+ * @returns {Promise<Object>} 处理后的结果
+ */
+async function processTranslationResult(result, text, context) {
+  // 增强返回数据：从 raw 中提取更多信息
+  const processedResult = {
+    translation: result.translation,
+    basic: result.basic || (result.raw ? result.raw.basic : null),
+    source: result.source,
+    raw: result.raw
+  };
+  
+  // 如果有 raw 数据，提取额外信息
+  if (result.raw) {
+    // 提取音标
+    if (result.raw.basic) {
+      processedResult.phonetic = result.raw.basic.phonetic || 
+                       result.raw.basic['uk-phonetic'] || 
+                       result.raw.basic['us-phonetic'] || '';
+      processedResult.partOfSpeech = result.raw.basic.explains && result.raw.basic.explains[0] 
+        ? result.raw.basic.explains[0].split('.')[0] + '.' 
+        : '';
+    }
+    
+    // 提取释义
+    if (result.raw.basic && result.raw.basic.explains) {
+      processedResult.definitions = result.raw.basic.explains.map(explain => ({
+        text: explain,
+        translation: explain
+      }));
+    }
+    
+    // 提取例句
+    if (result.raw.web) {
+      processedResult.examples = result.raw.web.slice(0, 3).map(item => ({
+        source: item.key,
+        target: Array.isArray(item.value) ? item.value.join('；') : item.value
+      }));
+    }
+    
+    // 提取网络释义
+    processedResult.web = result.raw.web || null;
+  }
+  
+  // 添加词性分析
+  const posService = self.posIntegrationServiceV2 || self.posIntegrationService;
+  
+  if (posService && context) {
+    try {
+      const posAnalysis = await posService.analyzeWord(text, context);
+      processedResult.posAnalysis = {
+        pos: posAnalysis.pos,
+        color: posAnalysis.color,
+        confidence: posAnalysis.confidence,
+        approach: posAnalysis.approach || 'frontend',
+        cached: posAnalysis.cached
+      };
+      
+      console.log('POS analysis added:', processedResult.posAnalysis);
+    } catch (posError) {
+      console.warn('POS analysis failed:', posError);
+    }
+  }
+  
+  // 调试日志
+  console.log('Translation result processed:', {
+    source: processedResult.source,
+    hasBasic: !!processedResult.basic,
+    hasDefinitions: !!processedResult.definitions,
+    hasPOS: !!processedResult.posAnalysis
+  });
+  
+  return processedResult;
 }
 
 
