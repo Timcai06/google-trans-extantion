@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
-
   "name": "单词翻译助手",
-
-  "version": "2.0.0",
-
-  "description": "翻译助手",
-
+  "version": "2.1.0",
+  "description": "高性能翻译助手 - 优化版",
+  
+  "minimum_chrome_version": "88",
+  
   "permissions": [
     "storage",
     "activeTab",
-    "tabs",
+    "tabs"
+  ],
+  
+  "optional_permissions": [
     "webNavigation"
   ],
 
@@ -23,21 +25,14 @@
     {
       "matches": ["<all_urls>"],
       "js": [
-        "extension/utils/trie-index.js",
-        "extension/utils/word-index-manager.js",
-        "extension/utils/dynamic-loader.js",
-        "extension/utils/module-manager.js",
-        "extension/utils/cache-manager.js",
-        "extension/utils/event-manager.js",
-        "extension/components/utils/style-manager.js",
-        "extension/content/content.js"
+        "extension/content/content-bundle.js"
       ],
       "css": [
-        "extension/content/content.css",
-        "extension/components/complex/word-drawer-v2.css"
+        "extension/content/content-bundle.css"
       ],
-      "run_at": "document_end",
-      "all_frames": true
+      "run_at": "document_idle",
+      "all_frames": false,
+      "world": "ISOLATED"
     }
   ],
 
@@ -46,14 +41,17 @@
   },
 
   "background": {
-    "service_worker": "extension/background/background.js"   
+    "service_worker": "extension/background/background.js",
+    "type": "module"
   },
 
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
 
-   "icons": {
-    "16": "assets/icons/icon16.png"
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
   }
 }

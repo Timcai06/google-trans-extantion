@@ -1,5 +1,10 @@
 /**
- * 单词翻译助手 - 后台服务工作进程
+ * 单词翻译助手 - 后台服务工作进程 (优化版)
+ *
+ * 性能优化：
+ * - 异步按需加载模块，减少SW启动时间
+ * - 关键模块立即加载，非关键模块延迟加载
+ * - 模块加载错误处理增强
  *
  * 主要功能：
  * 1. 调用第三方翻译/词典API（网易有道开放平台）
@@ -8,12 +13,76 @@
  * 4. 管理翻译请求和响应
  */
 
-// 导入辅助模块
-try {
-  importScripts('../utils/module-manager.js', '../config/api-config.js', '../services/ai-translate-service.js', '../services/quality_service.js', '../tests/test_suite.js', '../services/pos-integration-service.js', '../services/pos-performance-monitor.js', '../services/pos-integration-service-v2.js');
-} catch (e) {
-  console.error('Failed to import scripts:', e);
+// 模块加载配置
+const MODULE_CONFIG = {
+  // 关键模块：SW启动时必须加载
+  critical: [
+    '../utils/module-manager.js',
+    '../config/api-config.js'
+  ],
+  // 高优先级模块：延迟100ms加载
+  high: [
+    '../services/quality_service.js'
+  ],
+  // 普通优先级模块：延迟500ms加载
+  normal: [
+    '../services/ai-translate-service.js',
+    '../services/pos-integration-service.js',
+    '../services/pos-integration-service-v2.js'
+  ],
+  // 低优先级模块：延迟1000ms加载（监控和测试）
+  low: [
+    '../services/pos-performance-monitor.js',
+    '../tests/test_suite.js'
+  ]
+};
+
+/**
+ * 异步加载脚本模块
+ * @param {string[]} modules - 模块路径数组
+ * @returns {Promise<boolean>} - 加载是否成功
+ */
+async function loadModulesAsync(modules) {
+  try {
+    importScripts(...modules);
+    console.log('✅ Modules loaded:', modules.map(m => m.split('/').pop()).join(', '));
+    return true;
+  } catch (e) {
+    console.error('❌ Failed to load modules:', modules, e);
+    return false;
+  }
 }
+
+/**
+ * 按需加载模块 - 分级加载策略
+ */
+async function initializeModules() {
+  const startTime = performance.now();
+  
+  // 1. 立即加载关键模块
+  await loadModulesAsync(MODULE_CONFIG.critical);
+  
+  // 2. 延迟加载高优先级模块
+  setTimeout(() => {
+    loadModulesAsync(MODULE_CONFIG.high);
+  }, 100);
+  
+  // 3. 延迟加载普通优先级模块
+  setTimeout(() => {
+    loadModulesAsync(MODULE_CONFIG.normal);
+  }, 500);
+  
+  // 4. 最后加载低优先级模块
+  setTimeout(() => {
+    loadModulesAsync(MODULE_CONFIG.low);
+  }, 1000);
+  
+  const loadTime = performance.now() - startTime;
+  console.log(`⚡ Service Worker initialized in ${loadTime.toFixed(2)}ms`);
+}
+
+// 启动模块加载
+initializeModules();
 
 /**
  * Ollama 服务实例
