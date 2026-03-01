@@ -1,87 +1,59 @@
 /**
  * 单词翻译助手 - 后台服务工作进程 (优化版)
  *
- * 性能优化：
- * - 异步按需加载模块，减少SW启动时间
- * - 关键模块立即加载，非关键模块延迟加载
- * - 模块加载错误处理增强
- *
  * 主要功能：
  * 1. 调用第三方翻译/词典API（网易有道开放平台）
  * 2. 处理扩展安装事件
  * 3. 与内容脚本(content script)进行消息通信
  * 4. 管理翻译请求和响应
+ * 
+ * 注意：Service Worker 不支持动态 importScripts()
+ * 所有模块必须在 manifest.json 中静态声明或使用 ES6 import
  */
 
-// 模块加载配置
-const MODULE_CONFIG = {
-  // 关键模块：SW启动时必须加载
-  critical: [
-    '../utils/module-manager.js',
-    '../config/api-config.js'
-  ],
-  // 高优先级模块：延迟100ms加载
-  high: [
-    '../services/quality_service.js'
-  ],
-  // 普通优先级模块：延迟500ms加载
-  normal: [
-    '../services/ai-translate-service.js',
-    '../services/pos-integration-service.js',
-    '../services/pos-integration-service-v2.js'
-  ],
-  // 低优先级模块：延迟1000ms加载（监控和测试）
-  low: [
-    '../services/pos-performance-monitor.js',
-    '../tests/test_suite.js'
-  ]
-};
+const startTime = performance.now();
+
+// 延迟初始化非关键模块
+let moduleManager = null;
+let qualityService = null;
+let aiTranslateService = null;
+let posIntegrationService = null;
+let posIntegrationServiceV2 = null;
+let posPerformanceMonitor = null;
 
 /**
- * 异步加载脚本模块
- * @param {string[]} modules - 模块路径数组
- * @returns {Promise<boolean>} - 加载是否成功
+ * 延迟加载模块（通过动态 import）
  */
-async function loadModulesAsync(modules) {
+async function initializeModules() {
   try {
-    importScripts(...modules);
-    console.log('✅ Modules loaded:', modules.map(m => m.split('/').pop()).join(', '));
-    return true;
-  } catch (e) {
-    console.error('❌ Failed to load modules:', modules, e);
-    return false;
+    // 注意：这些模块需要转换为 ES6 模块才能使用 import()
+    // 当前使用全局变量访问，如果模块已通过其他方式加载
+    
+    // 检查全局作用域中的模块
+    moduleManager = self.ModuleManager ? new self.ModuleManager() : null;
+    qualityService = self.qualityService || null;
+    aiTranslateService = self.translateWithAI ? self : null;
+    posIntegrationService = self.posIntegrationService || null;
+    posIntegrationServiceV2 = self.posIntegrationServiceV2 || null;
+    posPerformanceMonitor = self.posPerformanceMonitor || null;
+    
+    console.log('📦 Modules initialized:', {
+      moduleManager: !!moduleManager,
+      qualityService: !!qualityService,
+      aiTranslateService: !!aiTranslateService,
+      posIntegrationService: !!posIntegrationService,
+      posIntegrationServiceV2: !!posIntegrationServiceV2,
+      posPerformanceMonitor: !!posPerformanceMonitor
+    });
+    
+    const loadTime = performance.now() - startTime;
+    console.log(`⚡ Service Worker initialized in ${loadTime.toFixed(2)}ms`);
+  } catch (error) {
+    console.error('❌ Module initialization failed:', error);
   }
 }
 
-/**
- * 按需加载模块 - 分级加载策略
- */
-async function initializeModules() {
-  const startTime = performance.now();
-  
-  // 1. 立即加载关键模块
-  await loadModulesAsync(MODULE_CONFIG.critical);
-  
-  // 2. 延迟加载高优先级模块
-  setTimeout(() => {
-    loadModulesAsync(MODULE_CONFIG.high);
-  }, 100);
-  
-  // 3. 延迟加载普通优先级模块
-  setTimeout(() => {
-    loadModulesAsync(MODULE_CONFIG.normal);
-  }, 500);
-  
-  // 4. 最后加载低优先级模块
-  setTimeout(() => {
-    loadModulesAsync(MODULE_CONFIG.low);
-  }, 1000);
-  
-  const loadTime = performance.now() - startTime;
-  console.log(`⚡ Service Worker initialized in ${loadTime.toFixed(2)}ms`);
-}
-
-// 启动模块加载
+// 启动模块初始化
 initializeModules();
 
 /**
@@ -134,25 +106,28 @@ async function initializeOllamaService() {
   }
 }
 
-// 使用模块管理器注册和初始化模块
-try {
-  // 创建模块管理器实例（如果尚未创建）
-  const moduleManager = self.moduleManager || new ModuleManager();
-  
-  // 注册模块
-  moduleManager.registerModule('apiConfig', self);
-  moduleManager.registerModule('aiTranslateService', self.translateWithAI ? self : null);
-  moduleManager.registerModule('qualityService', self.qualityService || null);
-  
-  // 初始化所有模块
-  moduleManager.initAll().then(result => {
-    console.log('模块初始化完成:', result);
-  }).catch(error => {
-    console.error('模块初始化失败:', error);
-  });
-} catch (e) {
-  console.error('模块管理初始化失败:', e);
-}
+// 使用模块管理器注册和初始化模块（如果可用）
+setTimeout(() => {
+  try {
+    if (moduleManager) {
+      // 注册模块
+      moduleManager.registerModule('apiConfig', self);
+      moduleManager.registerModule('aiTranslateService', aiTranslateService);
+      moduleManager.registerModule('qualityService', qualityService);
+      
+      // 初始化所有模块
+      moduleManager.initAll().then(result => {
+        console.log('✅ 模块初始化完成:', result);
+      }).catch(error => {
+        console.error('❌ 模块初始化失败:', error);
+      });
+    } else {
+      console.warn('⚠️ ModuleManager not available, skipping module registration');
+    }
+  } catch (e) {
+    console.error('❌ 模块管理初始化失败:', e);
+  }
+}, 100);
 
 // 监听扩展安装事件 - 当用户首次安装或更新扩展时触发
 chrome.runtime.onInstalled.addListener(() => {
@@ -180,15 +155,16 @@ initializeOllamaService();
  */
 async function initializePOSServiceV2() {
   try {
-    if (self.posIntegrationServiceV2) {
+    const service = posIntegrationServiceV2 || self.posIntegrationServiceV2;
+    if (service) {
       console.log('Initializing POS Integration Service V2...');
-      await self.posIntegrationServiceV2.initialize();
-      console.log('POS Integration Service V2 initialized successfully');
+      await service.initialize();
+      console.log('✅ POS Integration Service V2 initialized successfully');
     } else {
-      console.warn('POS Integration Service V2 not loaded');
+      console.warn('⚠️ POS Integration Service V2 not loaded');
     }
   } catch (error) {
-    console.error('Failed to initialize POS Integration Service V2:', error);
+    console.error('❌ Failed to initialize POS Integration Service V2:', error);
   }
 }
 

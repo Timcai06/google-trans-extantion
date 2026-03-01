@@ -2,6 +2,8 @@
  * Dashboard 管理器
  * 负责聚合 Chrome Storage 中的真实数据，并为 UI 提供统一的数据接口。
  * 对于缺失的数据（如 AI 建议、听说读写能力分布），提供合理的模拟/估算值。
+ * 
+ * 优化版本：集成错误处理、离线支持和数据验证
  */
 
 class DashboardManager {
@@ -13,10 +15,71 @@ class DashboardManager {
             settings: {}
         };
         this.initialized = false;
+        this.loading = false;
+        this.error = null;
         
         // Initialize Review_Queue_Manager if available
         this.reviewQueueManager = null;
         this.initReviewQueue();
+        
+        // 离线缓存
+        this.offlineCache = null;
+        this.setupOfflineSupport();
+    }
+    
+    /**
+     * 设置离线支持
+     */
+    setupOfflineSupport() {
+        // 监听在线/离线状态
+        window.addEventListener('online', () => {
+            console.log('[DashboardManager] Back online, syncing data...');
+            this.syncOfflineData();
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('[DashboardManager] Offline mode activated');
+            this.loadOfflineCache();
+        });
+    }
+    
+    /**
+     * 加载离线缓存
+     */
+    async loadOfflineCache() {
+        try {
+            const cached = localStorage.getItem('dashboard_offline_cache');
+            if (cached) {
+                this.offlineCache = JSON.parse(cached);
+                console.log('[DashboardManager] Loaded offline cache');
+            }
+        } catch (error) {
+            console.error('[DashboardManager] Failed to load offline cache:', error);
+        }
+    }
+    
+    /**
+     * 保存离线缓存
+     */
+    async saveOfflineCache() {
+        try {
+            localStorage.setItem('dashboard_offline_cache', JSON.stringify({
+                data: this.data,
+                timestamp: Date.now()
+            }));
+        } catch (error) {
+            console.error('[DashboardManager] Failed to save offline cache:', error);
+        }
+    }
+    
+    /**
+     * 同步离线数据
+     */
+    async syncOfflineData() {
+        if (this.offlineCache) {
+            // 重新加载最新数据
+            await this.init();
+        }
     }
     
     /**
@@ -40,10 +103,30 @@ class DashboardManager {
     }
 
     /**
-     * 初始化：加载所有必要数据
+     * 初始化：加载所有必要数据（带错误处理和验证）
      */
     async init() {
+        if (this.loading) {
+            console.warn('[DashboardManager] Already loading...');
+            return false;
+        }
+
+        this.loading = true;
+        this.error = null;
+
         try {
+            // 检查是否在线
+            const isOnline = navigator.onLine;
+            
+            if (!isOnline && this.offlineCache) {
+                console.log('[DashboardManager] Using offline cache');
+                this.data = this.offlineCache.data;
+                this.initialized = true;
+                this.loading = false;
+                return true;
+            }
+
+            // 加载数据
             const result = await chrome.storage.local.get([
                 'translatedWords', 
                 'learningHistory', 
@@ -51,18 +134,91 @@ class DashboardManager {
                 'userSettings'
             ]);
 
-            this.data.words = result.translatedWords || {};
-            this.data.history = result.learningHistory || {};
-            this.data.progress = result.learningProgress || {};
-            this.data.settings = result.userSettings || { dailyGoal: 20 };
+            // 数据验证
+            const validatedData = this.validateData(result);
+            
+            this.data.words = validatedData.words;
+            this.data.history = validatedData.history;
+            this.data.progress = validatedData.progress;
+            this.data.settings = validatedData.settings;
+            
+            // 保存离线缓存
+            await this.saveOfflineCache();
             
             this.initialized = true;
-            console.log('Dashboard data loaded:', this.data);
+            this.loading = false;
+            
+            console.log('[DashboardManager] Data loaded:', {
+                words: Object.keys(this.data.words).length,
+                history: Object.keys(this.data.history).length,
+                progress: Object.keys(this.data.progress).length
+            });
+            
             return true;
         } catch (error) {
-            console.error('Failed to init dashboard data:', error);
+            console.error('[DashboardManager] Init failed:', error);
+            this.error = error;
+            this.loading = false;
+            
+            // 尝试使用离线缓存
+            if (this.offlineCache) {
+                console.log('[DashboardManager] Falling back to offline cache');
+                this.data = this.offlineCache.data;
+                this.initialized = true;
+                return true;
+            }
+            
             return false;
         }
+    }
+
+    /**
+     * 验证数据完整性
+     */
+    validateData(result) {
+        const validated = {
+            words: {},
+            history: {},
+            progress: {},
+            settings: { dailyGoal: 20 }
+        };
+
+        // 验证 words
+        if (result.translatedWords && typeof result.translatedWords === 'object') {
+            validated.words = result.translatedWords;
+        }
+
+        // 验证 history
+        if (result.learningHistory && typeof result.learningHistory === 'object') {
+            validated.history = result.learningHistory;
+        }
+
+        // 验证 progress
+        if (result.learningProgress && typeof result.learningProgress === 'object') {
+            validated.progress = result.learningProgress;
+        }
+
+        // 验证 settings
+        if (result.userSettings && typeof result.userSettings === 'object') {
+            validated.settings = {
+                dailyGoal: result.userSettings.dailyGoal || 20,
+                ...result.userSettings
+            };
+        }
+
+        return validated;
+    }
+
+    /**
+     * 获取加载状态
+     */
+    getLoadingState() {
+        return {
+            loading: this.loading,
+            initialized: this.initialized,
+            error: this.error,
+            hasOfflineCache: !!this.offlineCache
+        };
     }
 
     /**

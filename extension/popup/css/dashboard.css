@@ -671,3 +671,314 @@ body.dashboard-body {
   font-weight: 600;
   font-size: 12px;
 }
+
+
+/* ========================================
+   骨架屏加载动画
+   ======================================== */
+
+.skeleton-card,
+.skeleton-table,
+.skeleton-chart {
+    animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.skeleton-line {
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.05) 25%,
+        rgba(255, 255, 255, 0.1) 50%,
+        rgba(255, 255, 255, 0.05) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s infinite;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+
+.skeleton-line.short {
+    width: 60%;
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+
+.skeleton-table {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skeleton-row {
+    display: flex;
+    gap: 12px;
+}
+
+.skeleton-cell {
+    flex: 1;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    animation: skeleton-shimmer 1.5s infinite;
+}
+
+.skeleton-chart {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-around;
+    height: 100%;
+    padding: 20px;
+}
+
+.skeleton-bars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-around;
+    width: 100%;
+    height: 100%;
+    gap: 8px;
+}
+
+.skeleton-bar {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px 4px 0 0;
+    animation: skeleton-shimmer 1.5s infinite;
+}
+
+/* 加载状态 */
+.loading .glass-panel {
+    pointer-events: none;
+}
+
+/* ========================================
+   错误状态
+   ======================================== */
+
+.error-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    text-align: center;
+    padding: 40px;
+}
+
+.error-state svg {
+    margin-bottom: 20px;
+    opacity: 0.8;
+}
+
+.error-state h2 {
+    color: #f87171;
+    font-size: 18px;
+    margin-bottom: 20px;
+}
+
+/* ========================================
+   可访问性增强
+   ======================================== */
+
+/* 键盘焦点指示器 */
+body:not(.using-mouse) *:focus {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+.keyboard-focus {
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.5);
+}
+
+/* 跳过链接（屏幕阅读器） */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: #38bdf8;
+    color: #fff;
+    padding: 8px 16px;
+    text-decoration: none;
+    border-radius: 0 0 4px 0;
+    z-index: 1000;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+    .glass-panel {
+        border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    .stat-card {
+        border: 2px solid rgba(255, 255, 255, 0.5);
+    }
+    
+    .text-sub {
+        color: #cbd5e1;
+    }
+}
+
+/* 减少动画（用户偏好） */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+    
+    .wave-icon {
+        animation: none;
+    }
+    
+    .coach-avatar {
+        animation: none;
+    }
+}
+
+/* ========================================
+   响应式优化（虽然固定520px，但为未来扩展准备）
+   ======================================== */
+
+@media (max-width: 520px) {
+    .dashboard-container {
+        flex-direction: column;
+    }
+    
+    .glass-sidebar {
+        width: 100%;
+        height: 60px;
+        flex-direction: row;
+        justify-content: space-between;
+        padding: 0 16px;
+    }
+    
+    .sidebar-menu {
+        flex-direction: row;
+    }
+    
+    .dashboard-main {
+        width: 100%;
+    }
+}
+
+/* ========================================
+   性能优化
+   ======================================== */
+
+/* GPU 加速 */
+.stat-card,
+.glass-panel,
+.modal-content {
+    will-change: transform;
+    transform: translateZ(0);
+}
+
+/* 减少重绘 */
+.chart-container canvas,
+.chart-container svg {
+    will-change: contents;
+}
+
+/* ========================================
+   打印样式
+   ======================================== */
+
+@media print {
+    .glass-sidebar,
+    .modal-overlay,
+    button {
+        display: none !important;
+    }
+    
+    .dashboard-main {
+        width: 100%;
+        padding: 0;
+    }
+    
+    .glass-panel {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+}
+
+/* ========================================
+   暗色主题增强（已经是暗色，但增加变体）
+   ======================================== */
+
+.theme-dark-high-contrast {
+    --dash-bg-dark: #000000;
+    --dash-text-main: #ffffff;
+    --dash-text-sub: #e2e8f0;
+}
+
+.theme-dark-high-contrast .glass-panel {
+    background: rgba(15, 23, 42, 0.9);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+/* ========================================
+   图表工具提示样式
+   ======================================== */
+
+.chart-tooltip {
+    position: fixed;
+    background: rgba(15, 23, 42, 0.95);
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 1000;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+/* ========================================
+   离线指示器
+   ======================================== */
+
+.offline-indicator {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(239, 68, 68, 0.9);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.offline-indicator::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}

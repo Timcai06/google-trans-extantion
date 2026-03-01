@@ -227,10 +227,237 @@ export { ComponentName };
 - **事件处理**：事件处理时间≤10ms
 
 ### 7.3 可访问性规范
-- **键盘导航**：支持键盘导航
-- **ARIA属性**：提供适当的ARIA属性
-- **文本对比度**：确保文本对比度符合WCAG标准
-- **屏幕阅读器支持**：支持屏幕阅读器
+
+#### 7.3.1 基础要求（必需）
+
+| 规范项 | 要求 | 检查方法 |
+|--------|------|----------|
+| **键盘导航** | 所有功能可通过键盘操作 | Tab 键测试 |
+| **ARIA属性** | 适当的 role 和 aria-* 属性 | axe-core 扫描 |
+| **文本对比度** | 符合 WCAG 2.1 AA（4.5:1） | WebAIM 工具 |
+| **焦点可见** | 焦点指示器清晰可见 | 手动检查 |
+| **触摸目标** | 最小 44×44px | 开发者工具 |
+
+#### 7.3.2 ARIA 属性标准
+
+**对话框/抽屉组件**：
+```javascript
+role="dialog"
+aria-modal="true"
+aria-labelledby="[标题ID]"
+aria-describedby="[描述ID]" (可选)
+```
+
+**按钮组件**：
+```javascript
+// 图标按钮
+aria-label="[功能描述]"
+
+// 切换按钮
+aria-pressed="true|false"
+
+// 禁用按钮
+aria-disabled="true"
+tabindex="-1"
+```
+
+**导航组件**：
+```javascript
+role="navigation"
+aria-label="[导航描述]"
+aria-current="page" (当前项)
+```
+
+#### 7.3.3 键盘导航标准
+
+**必需支持的快捷键**：
+
+| 快捷键 | 功能 | 适用组件 |
+|--------|------|----------|
+| `Tab` | 下一个可聚焦元素 | 所有 |
+| `Shift+Tab` | 上一个可聚焦元素 | 所有 |
+| `Enter/Space` | 激活按钮 | 所有 |
+| `Esc` | 关闭/取消 | 对话框、抽屉 |
+| `←/→` | 上一个/下一个 | 轮播、抽屉 |
+| `Home/End` | 第一个/最后一个 | 列表、导航 |
+
+**焦点管理**：
+- 打开对话框时，焦点应移至对话框内第一个元素
+- 关闭对话框时，焦点应恢复到触发元素
+- 使用焦点陷阱（Focus Trap）限制焦点在对话框内
+
+#### 7.3.4 焦点管理标准
+
+```javascript
+// 焦点陷阱实现
+class FocusTrap {
+  constructor(container) {
+    this.container = container;
+    this.focusableElements = container.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+  }
+  
+  activate() {
+    this.firstElement = this.focusableElements[0];
+    this.lastElement = this.focusableElements[this.focusableElements.length - 1];
+    
+    this.container.addEventListener('keydown', this.handleKeyDown);
+    this.firstElement?.focus();
+  }
+  
+  deactivate() {
+    this.container.removeEventListener('keydown', this.handleKeyDown);
+  }
+  
+  handleKeyDown = (e) => {
+    if (e.key !== 'Tab') return;
+    
+    if (e.shiftKey && document.activeElement === this.firstElement) {
+      e.preventDefault();
+      this.lastElement.focus();
+    } else if (!e.shiftKey && document.activeElement === this.lastElement) {
+      e.preventDefault();
+      this.firstElement.focus();
+    }
+  }
+}
+```
+
+#### 7.3.5 颜色对比度标准
+
+**文本对比度**：
+- 正常文本（<18pt）：4.5:1
+- 大文本（≥18pt 或 14pt 粗体）：3:1
+
+**项目色彩系统**：
+```css
+:root {
+  /* 主文字 - 12:1 对比度 */
+  --text-primary: #f0f0f0; /* 在 #1a1f2e 背景上 */
+  
+  /* 次要文字 - 7:1 对比度 */
+  --text-secondary: #b8c0d0;
+  
+  /* 辅助文字 - 4.5:1 对比度 */
+  --text-tertiary: #9aa4b8;
+}
+```
+
+**对比度计算工具**：
+- WebAIM Contrast Checker
+- Chrome DevTools 颜色选择器
+- Stark 插件
+
+#### 7.3.6 动画减弱支持
+
+**检测用户偏好**：
+```css
+@media (prefers-reduced-motion: reduce) {
+  .component {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+```
+
+**JavaScript 检测**：
+```javascript
+const prefersReducedMotion = window.matchMedia(
+  '(prefers-reduced-motion: reduce)'
+).matches;
+
+if (prefersReducedMotion) {
+  // 跳过动画，直接显示最终状态
+} else {
+  // 执行动画
+}
+```
+
+#### 7.3.7 屏幕阅读器支持
+
+**文本替代**：
+```javascript
+// ❌ 错误 - 无标签图标按钮
+`<button><svg>...</svg></button>`
+
+// ✅ 正确 - 带 aria-label
+`<button aria-label="关闭"><svg>...</svg></button>`
+
+// ✅ 正确 - 视觉隐藏文本
+`<button>
+  <span aria-hidden="true">×</span>
+  <span class="sr-only">关闭</span>
+</button>`
+```
+
+**语义化 HTML**：
+```javascript
+// ❌ 错误 - div 作为按钮
+`<div onclick="action()">点击</div>`
+
+// ✅ 正确 - 使用 button 元素
+`<button onclick="action()">点击</button>`
+```
+
+**实时区域**：
+```javascript
+// 动态内容更新通知
+const liveRegion = document.createElement('div');
+liveRegion.setAttribute('aria-live', 'polite');
+liveRegion.setAttribute('aria-atomic', 'true');
+liveRegion.className = 'sr-only';
+document.body.appendChild(liveRegion);
+
+// 更新时
+liveRegion.textContent = '单词已保存';
+```
+
+#### 7.3.8 触摸目标标准
+
+**最小尺寸**：44×44px
+
+```css
+.component-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 12px;
+}
+
+/* 触摸目标间距 */
+.component-button + .component-button {
+  margin-left: 12px;
+}
+```
+
+#### 7.3.9 可访问性测试检查清单
+
+**开发前**：
+- [ ] 设计稿通过对比度检查
+- [ ] 已规划键盘导航路径
+- [ ] 已确定 ARIA 角色和属性
+
+**开发中**：
+- [ ] 所有图标/图片有替代文本
+- [ ] 表单元素有关联的 label
+- [ ] 颜色对比度符合标准
+- [ ] 支持键盘操作
+- [ ] 焦点顺序合理
+- [ ] 动画支持减弱
+
+**开发后**：
+- [ ] axe-core 扫描通过
+- [ ] Lighthouse A11y ≥ 95
+- [ ] 屏幕阅读器测试
+- [ ] 仅键盘操作测试
+- [ ] 高对比度模式测试
+
+#### 7.3.10 参考资源
+
+- [WCAG 2.1 快速参考](https://www.w3.org/WAI/WCAG21/quickref/)
+- [MDN ARIA 文档](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA)
+- [A11y Project 检查清单](https://www.a11yproject.com/checklist/)
+- 详见 [A11y开发指南.md](../08_可访问性/A11y开发指南.md)
 
 ### 7.4 代码质量规范
 - **代码风格**：遵循项目现有的代码风格

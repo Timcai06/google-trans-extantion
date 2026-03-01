@@ -8,12 +8,18 @@
  * 计算并更新今日学习、掌握程度、待复习的数据，包括可视化进度条
  */
 function updateLearningStats() {
+  // 确保 wordsData 存在
+  if (!window.wordsData) {
+    console.warn('[Learning Stats] wordsData not available yet');
+    return;
+  }
+
   // 计算今日学习的单词数量
   const today = new Date().toDateString();
   let todayLearnedCount = 0;
   
   // 计算掌握程度
-  let totalWords = Object.keys(wordsData).length;
+  let totalWords = Object.keys(window.wordsData).length;
   let masteredCount = 0;
   
   // 计算待复习的单词数量
@@ -26,8 +32,8 @@ function updateLearningStats() {
     const dailyGoal = settings.dailyGoal || 20;
     
     // 计算今日学习的单词数量
-    for (const wordKey in wordsData) {
-      const word = wordsData[wordKey];
+    for (const wordKey in window.wordsData) {
+      const word = window.wordsData[wordKey];
       if (word.lastUsed && new Date(word.lastUsed).toDateString() === today) {
         todayLearnedCount++;
       }
@@ -37,7 +43,7 @@ function updateLearningStats() {
     // 防御性检查：只统计wordsData中存在的单词
     for (const wordKey in progress) {
       // 只处理存在于wordsData中的单词
-      if (wordsData[wordKey]) {
+      if (window.wordsData[wordKey]) {
         const wordProgress = progress[wordKey];
         if (wordProgress.masteryLevel >= 3) {
           masteredCount++;

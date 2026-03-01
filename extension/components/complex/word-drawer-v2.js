@@ -24,12 +24,23 @@ class WordDrawerV2 {
     this.wordList = [];
     this.elements = {};
     this.isAnimating = false;
+    this.isOpen = false; // Track drawer open state for KeyboardManager
     
     // 滑动手势相关
     this.touchStartX = 0;
     this.touchStartY = 0;
     this.touchEndX = 0;
     this.isSwiping = false;
+    
+    // 资源清理跟踪
+    this.animationFrameId = null;
+    this.timeouts = [];
+    this.eventHandlers = {};
+    
+    // Accessibility modules (Requirements: 1.1, 2.1, 3.1)
+    this.focusManager = null;
+    this.ariaManager = null;
+    this.keyboardManager = null;
     
     this.init();
   }
@@ -40,7 +51,42 @@ class WordDrawerV2 {
   init() {
     this.injectStyles();
     this.createDOM();
+    this.initializeAccessibilityModules();
     this.bindEvents();
+  }
+
+  /**
+   * Initialize accessibility modules
+   * Requirements: 1.1, 2.1, 3.1
+   */
+  initializeAccessibilityModules() {
+    // Initialize FocusManager
+    if (this.elements.drawer && window.FocusManager) {
+      this.focusManager = new window.FocusManager(this.elements.drawer);
+      console.log('WordDrawerV2: FocusManager initialized');
+    } else {
+      console.warn('WordDrawerV2: FocusManager not available');
+    }
+
+    // Initialize ARIAManager
+    if (this.elements.drawer && window.ARIAManager) {
+      this.ariaManager = new window.ARIAManager(this.elements.drawer);
+      
+      // Create live regions for announcements (Requirement: 1.5)
+      this.ariaManager.createLiveRegions();
+      
+      console.log('WordDrawerV2: ARIAManager initialized');
+    } else {
+      console.warn('WordDrawerV2: ARIAManager not available');
+    }
+
+    // Initialize KeyboardManager
+    if (window.KeyboardManager) {
+      this.keyboardManager = new window.KeyboardManager(this);
+      console.log('WordDrawerV2: KeyboardManager initialized');
+    } else {
+      console.warn('WordDrawerV2: KeyboardManager not available');
+    }
   }
 
   /**
@@ -70,27 +116,38 @@ class WordDrawerV2 {
     overlay.id = 'wordDrawerOverlayV2';
     this.elements.overlay = overlay;
 
-    // 创建抽屉
+    // 创建抽屉 (Requirements: 1.1, 1.2, 1.3, 1.4, 1.6)
     const drawer = document.createElement('div');
     drawer.className = 'word-drawer';
     drawer.id = 'wordDrawerV2';
+    
+    // Generate unique IDs for ARIA associations
+    const titleId = `drawer-title-${Date.now()}`;
+    const descriptionId = `drawer-description-${Date.now()}`;
+    
+    // Set ARIA attributes on drawer container (Requirement: 1.1)
+    drawer.setAttribute('role', 'dialog');
+    drawer.setAttribute('aria-modal', 'true');
+    drawer.setAttribute('aria-labelledby', titleId);
+    drawer.setAttribute('aria-describedby', descriptionId);
+    
     drawer.innerHTML = `
       <!-- 抽屉头部 -->
       <div class="word-drawer-header">
         <div class="drawer-nav-controls">
-          <button class="drawer-nav-btn" id="drawerPrevBtn" aria-label="上一个">
+          <button class="drawer-nav-btn" id="drawerPrevBtn" aria-label="上一个单词">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
               <polyline points="15 18 9 12 15 6"></polyline>
             </svg>
           </button>
-          <span class="drawer-nav-indicator" id="drawerNavIndicator">1 / 1</span>
-          <button class="drawer-nav-btn" id="drawerNextBtn" aria-label="下一个">
+          <span class="drawer-nav-indicator" id="drawerNavIndicator" aria-live="polite" aria-atomic="true">1 / 1</span>
+          <button class="drawer-nav-btn" id="drawerNextBtn" aria-label="下一个单词">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </button>
         </div>
-        <button class="word-drawer-close-btn" id="drawerCloseBtnV2" aria-label="关闭">
+        <button class="word-drawer-close-btn" id="drawerCloseBtnV2" aria-label="关闭单词抽屉">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -99,20 +156,20 @@ class WordDrawerV2 {
       </div>
 
       <!-- 抽屉内容区域 -->
-      <div class="word-drawer-content" id="wordDrawerContentV2">
+      <div class="word-drawer-content" id="wordDrawerContentV2" role="document">
         <!-- 内容将动态填充 -->
       </div>
 
       <!-- 操作按钮区域 -->
       <div class="word-drawer-actions" id="wordDrawerActionsV2">
-        <button class="drawer-action-btn" id="drawerCopyBtnV2">
+        <button class="drawer-action-btn" id="drawerCopyBtnV2" aria-label="复制单词和翻译">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
           </svg>
           复制
         </button>
-        <button class="drawer-action-btn danger" id="drawerDeleteBtnV2">
+        <button class="drawer-action-btn danger" id="drawerDeleteBtnV2" aria-label="删除此单词">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -122,6 +179,10 @@ class WordDrawerV2 {
           删除
         </button>
       </div>
+      
+      <!-- ARIA live regions for announcements (Requirement: 1.5) -->
+      <div id="${titleId}" class="sr-only"></div>
+      <div id="${descriptionId}" class="sr-only"></div>
     `;
 
     this.elements.drawer = drawer;
@@ -130,6 +191,8 @@ class WordDrawerV2 {
     this.elements.prevBtn = drawer.querySelector('#drawerPrevBtn');
     this.elements.nextBtn = drawer.querySelector('#drawerNextBtn');
     this.elements.navIndicator = drawer.querySelector('#drawerNavIndicator');
+    this.elements.titleElement = drawer.querySelector(`#${titleId}`);
+    this.elements.descriptionElement = drawer.querySelector(`#${descriptionId}`);
 
     container.appendChild(overlay);
     container.appendChild(drawer);
@@ -139,19 +202,28 @@ class WordDrawerV2 {
    * 绑定事件
    */
   bindEvents() {
+    // 存储处理器引用以便清理
+    this.eventHandlers.overlayClick = () => this.hide();
+    this.eventHandlers.closeClick = () => this.hide();
+    this.eventHandlers.prevClick = () => this.navigateToPrev();
+    this.eventHandlers.nextClick = () => this.navigateToNext();
+    this.eventHandlers.touchStart = (e) => this.handleTouchStart(e);
+    this.eventHandlers.touchMove = (e) => this.handleTouchMove(e);
+    this.eventHandlers.touchEnd = (e) => this.handleTouchEnd(e);
+
     // 遮罩层点击关闭
-    this.elements.overlay.addEventListener('click', () => this.hide());
+    this.elements.overlay.addEventListener('click', this.eventHandlers.overlayClick);
 
     // 关闭按钮
-    this.elements.closeBtn.addEventListener('click', () => this.hide());
+    this.elements.closeBtn.addEventListener('click', this.eventHandlers.closeClick);
 
     // 导航按钮
-    this.elements.prevBtn.addEventListener('click', () => this.navigateToPrev());
-    this.elements.nextBtn.addEventListener('click', () => this.navigateToNext());
+    this.elements.prevBtn.addEventListener('click', this.eventHandlers.prevClick);
+    this.elements.nextBtn.addEventListener('click', this.eventHandlers.nextClick);
 
     // ESC键关闭，左右箭头导航
     this.keyHandler = (e) => {
-      if (!this.elements.overlay.classList.contains('active')) return;
+      if (!this.elements.overlay?.classList.contains('active')) return;
       
       if (e.key === 'Escape') {
         this.hide();
@@ -163,21 +235,30 @@ class WordDrawerV2 {
     };
     document.addEventListener('keydown', this.keyHandler);
 
-    // 滑动手势支持
-    this.elements.content.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: true });
-    this.elements.content.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
-    this.elements.content.addEventListener('touchend', (e) => this.handleTouchEnd(e));
+    // 滑动手势支持 - 使用passive:true提升性能
+    this.elements.content.addEventListener('touchstart', this.eventHandlers.touchStart, { passive: true });
+    this.elements.content.addEventListener('touchmove', this.eventHandlers.touchMove, { passive: true });
+    this.elements.content.addEventListener('touchend', this.eventHandlers.touchEnd);
 
-    // 复制按钮
+    // 复制和删除按钮
+    this.bindActionButtons();
+  }
+
+  /**
+   * 绑定操作按钮事件
+   */
+  bindActionButtons() {
     const copyBtn = document.getElementById('drawerCopyBtnV2');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', () => this.handleCopy());
-    }
-
-    // 删除按钮
     const deleteBtn = document.getElementById('drawerDeleteBtnV2');
+    
+    this.eventHandlers.copyClick = () => this.handleCopy();
+    this.eventHandlers.deleteClick = () => this.handleDelete();
+    
+    if (copyBtn) {
+      copyBtn.addEventListener('click', this.eventHandlers.copyClick);
+    }
     if (deleteBtn) {
-      deleteBtn.addEventListener('click', () => this.handleDelete());
+      deleteBtn.addEventListener('click', this.eventHandlers.deleteClick);
     }
   }
 
@@ -194,15 +275,14 @@ class WordDrawerV2 {
    * 处理触摸移动
    */
   handleTouchMove(e) {
-    if (!this.touchStartX) return;
+    if (!this.touchStartX || this.isAnimating) return;
     
     const diffX = e.touches[0].clientX - this.touchStartX;
     const diffY = e.touches[0].clientY - this.touchStartY;
     
-    // 判断是否为水平滑动
+    // 判断是否为水平滑动（不阻止默认滚动行为）
     if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
       this.isSwiping = true;
-      e.preventDefault();
     }
   }
 
@@ -210,7 +290,8 @@ class WordDrawerV2 {
    * 处理触摸结束
    */
   handleTouchEnd(e) {
-    if (!this.isSwiping) return;
+    // 防止动画过程中的重复触发
+    if (!this.isSwiping || this.isAnimating) return;
     
     this.touchEndX = e.changedTouches[0].clientX;
     const diffX = this.touchEndX - this.touchStartX;
@@ -274,6 +355,14 @@ class WordDrawerV2 {
       this.currentWord = this.prepareWordData(newWord);
       this.renderContent(this.currentWord);
       this.updateNavigation();
+      
+      // Update ARIA live region to announce navigation (Requirement: 1.5)
+      if (this.ariaManager) {
+        const word = this.currentWord.text || this.currentWord.word || this.currentWord.key;
+        const position = `单词 ${this.currentIndex + 1} / ${this.wordList.length}`;
+        const message = `${position}: ${word}`;
+        this.ariaManager.updateLiveRegion(message, 'polite');
+      }
       
       // 移除滑出动画，添加滑入动画
       content.classList.remove('slide-out-left', 'slide-out-right');
@@ -344,6 +433,11 @@ class WordDrawerV2 {
 
     this.isAnimating = true;
     
+    // Save focus origin before opening (Requirement: 2.4)
+    if (this.focusManager) {
+      this.focusManager.saveFocusOrigin();
+    }
+    
     // 检查 detailedInfo 是否有效（不仅要存在，还要有实际内容）
     const hasValidDetailedInfo = (info) => {
       if (!info) return false;
@@ -397,18 +491,42 @@ class WordDrawerV2 {
     // 填充内容
     this.renderContent(wordData);
     this.updateNavigation();
+    
+    // Update ARIA title and description (Requirement: 1.2, 1.3)
+    if (this.elements.titleElement && this.elements.descriptionElement) {
+      const word = wordData.text || wordData.word || wordData.key || '单词';
+      const translation = wordData.translation || '';
+      this.elements.titleElement.textContent = `单词详情：${word}`;
+      this.elements.descriptionElement.textContent = translation;
+    }
 
     // 显示遮罩和抽屉（带动画）
     requestAnimationFrame(() => {
       this.elements.overlay.classList.add('active');
       this.elements.drawer.classList.remove('closing');
       this.elements.drawer.classList.add('active');
+      this.isOpen = true; // Track open state for KeyboardManager
+      
+      // Enable keyboard shortcuts (Requirement: 3.1)
+      if (this.keyboardManager) {
+        this.keyboardManager.enableKeyboardShortcuts();
+      }
+      
+      // Enable focus trap after drawer opens (Requirement: 2.1)
+      if (this.focusManager) {
+        this.focusManager.enableFocusTrap();
+      }
       
       // 动画完成后
       setTimeout(() => {
         this.isAnimating = false;
         this.animateCircularProgress();
         this.animateFrequencyBars();
+        
+        // Move focus to first element after animation completes (Requirement: 2.1)
+        if (this.focusManager) {
+          this.focusManager.moveFocusToFirst();
+        }
       }, 500);
     });
 
@@ -433,6 +551,17 @@ class WordDrawerV2 {
     if (this.isAnimating) return;
     
     this.isAnimating = true;
+    this.isOpen = false; // Track closed state for KeyboardManager
+
+    // Disable focus trap before closing (Requirement: 2.4)
+    if (this.focusManager) {
+      this.focusManager.disableFocusTrap();
+    }
+    
+    // Disable keyboard shortcuts
+    if (this.keyboardManager) {
+      this.keyboardManager.disableKeyboardShortcuts();
+    }
 
     this.elements.drawer.classList.add('closing');
     this.elements.overlay.classList.remove('active');
@@ -441,6 +570,11 @@ class WordDrawerV2 {
       this.elements.drawer.classList.remove('active', 'closing');
       this.isAnimating = false;
       document.body.style.overflow = '';
+
+      // Restore focus after drawer closes (Requirement: 2.4)
+      if (this.focusManager) {
+        this.focusManager.restoreFocus();
+      }
 
       if (this.options.onClose) {
         this.options.onClose();
@@ -539,7 +673,6 @@ class WordDrawerV2 {
           </div>
           <div class="drawer-meta-badges">
             ${this.renderFrequencyBadge(count)}
-            ${this.renderLearningDaysBadge(data.firstUsed)}
           </div>
         </div>
         
@@ -569,21 +702,26 @@ class WordDrawerV2 {
           详细释义
           ${partOfSpeech ? `<span class="drawer-pos-badge">${this.escapeHtml(partOfSpeech)}</span>` : ''}
         </h3>
-        <div class="drawer-definitions">
-          ${definitions.map((def, index) => `
-            <div class="drawer-definition-item">
-              <span class="drawer-definition-index">${index + 1}</span>
-              <div class="drawer-definition-content">
-                ${def.pos ? `<span class="drawer-definition-pos">${this.escapeHtml(def.pos)}</span>` : ''}
-                <div class="drawer-definition-cn">${this.escapeHtml(def.cn)}</div>
-                ${def.en && def.en !== def.cn ? `<div class="drawer-definition-en">${this.escapeHtml(def.en)}</div>` : ''}
-                ${def.example ? `
-                  <div class="drawer-definition-example">
-                    <span class="example-label">例</span>
-                    <span class="example-text">${this.highlightWord(this.escapeHtml(def.example), word)}</span>
+        <!-- 优化：采用tooltip-meanings样式，按词性分组 -->
+        <div class="drawer-definitions tooltip-meanings">
+          ${this.groupDefinitionsByPOS(definitions).map((group) => `
+            <div class="tooltip-pos-group drawer-pos-group">
+              <div class="drawer-pos-label">${this.escapeHtml(group.pos)}</div>
+              ${group.defs.map((def, index) => `
+                <div class="drawer-definition-item tooltip-definition-item">
+                  <span class="drawer-definition-number">${index + 1}.</span>
+                  <div class="drawer-definition-content">
+                    <div class="drawer-definition-text">${this.escapeHtml(def.cn)}</div>
+                    ${def.en && def.en !== def.cn ? `<div class="drawer-definition-en">${this.escapeHtml(def.en)}</div>` : ''}
+                    ${def.example ? `
+                      <div class="drawer-definition-example">
+                        <span class="example-label">💡</span>
+                        <span class="example-text">${this.highlightWord(this.escapeHtml(def.example), word)}</span>
+                      </div>
+                    ` : ''}
                   </div>
-                ` : ''}
-              </div>
+                </div>
+              `).join('')}
             </div>
           `).join('')}
         </div>
@@ -973,13 +1111,13 @@ class WordDrawerV2 {
       });
     }
 
-    // 限制显示数量并去重
+    // 限制显示数量并去重（增加到10条以显示更完整内容）
     const uniqueDefinitions = [];
     const seenMeanings = new Set();
     
     for (const def of definitions) {
       const key = def.cn || def.en;
-      if (key && !seenMeanings.has(key) && uniqueDefinitions.length < 6) {
+      if (key && !seenMeanings.has(key) && uniqueDefinitions.length < 10) {
         seenMeanings.add(key);
         uniqueDefinitions.push(def);
       }
@@ -1151,12 +1289,16 @@ class WordDrawerV2 {
    * 渲染学习天数徽章 - 简化版
    */
   renderLearningDaysBadge(firstUsed) {
-    if (!firstUsed) return '';
+    // 修复NaN bug：添加有效性检查
+    if (!firstUsed || typeof firstUsed !== 'number' || firstUsed <= 0 || isNaN(firstUsed)) {
+      return '';
+    }
     
     const now = Date.now();
     const days = Math.floor((now - firstUsed) / (24 * 60 * 60 * 1000));
     
-    if (days < 1) return '';
+    // 额外检查：确保days是有效数字
+    if (isNaN(days) || days < 1 || days > 36500) return ''; // 限制最大100年
     
     let milestone = '';
     if (days >= 100) milestone = '💯';
@@ -1193,6 +1335,38 @@ class WordDrawerV2 {
     `;
   }
   
+  /**
+   * 按词性分组定义 - 优化详细释义显示
+   */
+  groupDefinitionsByPOS(definitions) {
+    if (!Array.isArray(definitions) || definitions.length === 0) {
+      return [];
+    }
+    
+    const groups = {};
+    
+    definitions.forEach(def => {
+      const pos = def.pos || '其他';
+      if (!groups[pos]) {
+        groups[pos] = { pos: pos, defs: [] };
+      }
+      groups[pos].defs.push(def);
+    });
+    
+    // 按常见词性顺序排序
+    const posOrder = ['n.', 'v.', 'adj.', 'adv.', 'pron.', 'prep.', 'conj.', 'interj.'];
+    const sortedGroups = Object.values(groups).sort((a, b) => {
+      const indexA = posOrder.indexOf(a.pos);
+      const indexB = posOrder.indexOf(b.pos);
+      if (indexA === -1 && indexB === -1) return 0;
+      if (indexA === -1) return 1;
+      if (indexB === -1) return -1;
+      return indexA - indexB;
+    });
+    
+    return sortedGroups;
+  }
+
   /**
    * 渲染使用场景标签
    */
@@ -1452,26 +1626,31 @@ class WordDrawerV2 {
   animateCount(element, targetCount) {
     if (!element) return;
 
+    // 取消之前的动画
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+
     let currentCount = 0;
-    const duration = 800; // 动画持续时间
+    const duration = 800;
     const startTime = Date.now();
 
     const animate = () => {
       const elapsed = Date.now() - startTime;
       const progress = Math.min(elapsed / duration, 1);
-
-      // 使用缓动函数
       const easeOut = 1 - Math.pow(1 - progress, 3);
       currentCount = Math.round(targetCount * easeOut);
 
       element.textContent = `${currentCount}次`;
 
       if (progress < 1) {
-        requestAnimationFrame(animate);
+        this.animationFrameId = requestAnimationFrame(animate);
+      } else {
+        this.animationFrameId = null;
       }
     };
 
-    animate();
+    this.animationFrameId = requestAnimationFrame(animate);
   }
 
   /**
@@ -1929,10 +2108,50 @@ class WordDrawerV2 {
    * 销毁组件
    */
   destroy() {
+    // 清理所有事件监听器
+    if (this.elements.overlay && this.eventHandlers.overlayClick) {
+      this.elements.overlay.removeEventListener('click', this.eventHandlers.overlayClick);
+    }
+    if (this.elements.closeBtn && this.eventHandlers.closeClick) {
+      this.elements.closeBtn.removeEventListener('click', this.eventHandlers.closeClick);
+    }
+    if (this.elements.prevBtn && this.eventHandlers.prevClick) {
+      this.elements.prevBtn.removeEventListener('click', this.eventHandlers.prevClick);
+    }
+    if (this.elements.nextBtn && this.eventHandlers.nextClick) {
+      this.elements.nextBtn.removeEventListener('click', this.eventHandlers.nextClick);
+    }
+    if (this.elements.content && this.eventHandlers.touchStart) {
+      this.elements.content.removeEventListener('touchstart', this.eventHandlers.touchStart);
+      this.elements.content.removeEventListener('touchmove', this.eventHandlers.touchMove);
+      this.elements.content.removeEventListener('touchend', this.eventHandlers.touchEnd);
+    }
     if (this.keyHandler) {
       document.removeEventListener('keydown', this.keyHandler);
     }
 
+    // 清理操作按钮事件
+    const copyBtn = document.getElementById('drawerCopyBtnV2');
+    const deleteBtn = document.getElementById('drawerDeleteBtnV2');
+    if (copyBtn && this.eventHandlers.copyClick) {
+      copyBtn.removeEventListener('click', this.eventHandlers.copyClick);
+    }
+    if (deleteBtn && this.eventHandlers.deleteClick) {
+      deleteBtn.removeEventListener('click', this.eventHandlers.deleteClick);
+    }
+
+    // 取消进行中的动画
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    // 取消语音合成
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+
+    // 清理DOM元素
     if (this.elements.overlay) {
       this.elements.overlay.remove();
     }
@@ -1945,9 +2164,12 @@ class WordDrawerV2 {
       styleEl.remove();
     }
 
+    // 重置状态
     this.elements = {};
+    this.eventHandlers = {};
     this.currentWord = null;
     this.wordList = [];
+    this.isAnimating = false;
   }
 }
 

@@ -41,8 +41,7 @@
   },
 
   "background": {
-    "service_worker": "extension/background/background.js",
-    "type": "module"
+    "service_worker": "extension/background/background.js"
   },
 
   "content_security_policy": {

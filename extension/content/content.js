@@ -24,6 +24,46 @@ if (window.trustedTypes && window.trustedTypes.createPolicy) {
   }
 }
 
+// ====================
+// 内存安全的事件监听器管理器 (防止内存泄漏)
+// ====================
+const EventListenerManager = {
+  activeListeners: new Map(),
+  
+  add(element, event, handler, options = {}) {
+    const listenerId = `${event}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    element.addEventListener(event, handler, options);
+    this.activeListeners.set(listenerId, { element, event, handler, options });
+    return listenerId;
+  },
+  
+  remove(listenerId) {
+    const listener = this.activeListeners.get(listenerId);
+    if (listener) {
+      listener.element.removeEventListener(listener.event, listener.handler, listener.options);
+      this.activeListeners.delete(listenerId);
+    }
+  },
+  
+  removeByElement(element) {
+    this.activeListeners.forEach((listener, id) => {
+      if (listener.element === element) this.remove(id);
+    });
+  },
+  
+  cleanup() {
+    this.activeListeners.forEach((listener, id) => {
+      listener.element.removeEventListener(listener.event, listener.handler, listener.options);
+    });
+    this.activeListeners.clear();
+    console.log('✅ Event listeners cleaned up');
+  },
+  
+  getCount() { return this.activeListeners.size; }
+};
+
+window.addEventListener('beforeunload', () => EventListenerManager.cleanup());
+
 // ====================  
 // 配置常量定义  
 // ====================
@@ -141,6 +181,30 @@ const shortTermCache = new AdvancedCache('shortTermCache', 50, CACHE_CONFIG.SHOR
 
 // Word_Index_Manager instance for optimized word lookups in content script
 let contentWordIndexManager = null;
+
+// 图片懒加载器实例
+let lazyImageLoader = null;
+
+// 初始化图片懒加载器
+function initLazyImageLoader() {
+  if (!lazyImageLoader && typeof LazyImageLoader !== 'undefined') {
+    lazyImageLoader = new LazyImageLoader({ rootMargin: '100px' });
+    lazyImageLoader.observeAll();
+    
+    // 监听DOM变化，自动观察新图片
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            const images = node.matches?.('img[data-src]') ? [node] : node.querySelectorAll?.('img[data-src]') || [];
+            images.forEach(img => lazyImageLoader.observe(img));
+          }
+        });
+      });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
 
 // Initialize Word_Index_Manager for content script
 async function initContentWordIndex() {
@@ -2332,17 +2396,16 @@ async function renderPopup({
   };
   bindPopupEvents(clickTooltip, currentParams);
   
-  // 点击外部关闭
+  // 点击外部关闭 - 使用安全的事件管理器防止内存泄漏
   setTimeout(() => {
-    const closeOnClickOutside = (e) => {
+    const closeListenerId = EventListenerManager.add(document, 'click', (e) => {
       if (clickTooltip && !clickTooltip.contains(e.target)) {
         clickTooltip.remove();
         clickTooltip = null;
         translationPopup = null;
-        document.removeEventListener('click', closeOnClickOutside);
+        EventListenerManager.remove(closeListenerId);
       }
-    };
-    document.addEventListener('click', closeOnClickOutside);
+    });
   }, 100);
   
   // 结束性能监控

@@ -180,15 +180,22 @@
     <script src="../components/utils/style-manager.js"></script>
     <script src="../components/utils/BaseComponent.js"></script>
     
-    <!-- Chart.js (假设项目中有，或者使用CDN/本地库) -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> 
-    <!-- 注意: 实际扩展开发不能用CDN，这里假设用户之后会替换为本地库，或者项目里已经有了 base-chart.js 封装 -->
-    <!-- 为了保持原生，暂时复用 base-chart.js 但可能需要调整配置 -->
-    <script src="../components/charts/base-chart.js"></script>
-    <script src="../components/charts/line-chart.js"></script>
-    <script src="../components/charts/bar-chart.js"></script>
-    <script src="../components/charts/radar-chart.js"></script>
-
+    <!-- 可访问性工具 -->
+    <script src="../utils/accessibility/KeyboardManager.js"></script>
+    <script src="../utils/accessibility/ARIAManager.js"></script>
+    <script src="../utils/accessibility/FocusManager.js"></script>
+    <script src="../utils/accessibility/ColorContrastValidator.js"></script>
+    
+    <!-- 轻量级图表库 (替代 Chart.js) -->
+    <script src="../components/charts/mini-chart.js"></script>
+    
+    <!-- 新增优化模块 -->
+    <script src="modules/dashboard-store.js"></script>
+    <script src="modules/smart-renderer.js"></script>
+    <script src="modules/smart-coach.js"></script>
+    <script src="modules/accessible-dashboard.js"></script>
+    
+    <!-- Dashboard 管理器和主逻辑 -->
     <script src="modules/dashboard-manager.js"></script>
     <script src="dashboard.js"></script>
     

@@ -47,7 +47,7 @@ async function loadHomePage() {
 
 /**
  * 更新学习面板内容
- * 简化版：只显示3个按钮 + 2个状态显示
+ * 不替换HTML，只更新按钮事件和统计数据
  */
 async function updateLearningPanel() {
   const learningContent = document.getElementById('learningContent');
@@ -64,123 +64,58 @@ async function updateLearningPanel() {
           </svg>
         </div>
         <div class="placeholder-text">开始翻译一些单词来开始学习吧！</div>
-        <div class="placeholder-actions">
-          <button class="dashboard-icon-btn" id="dashboardBtn" title="学习Dashboard">
-            <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="7" height="9"></rect>
-              <rect x="14" y="3" width="7" height="5"></rect>
-              <rect x="14" y="12" width="7" height="9"></rect>
-              <rect x="3" y="16" width="7" height="5"></rect>
-            </svg>
-          </button>
-        </div>
       </div>
     `;
-    
-    // 为Dashboard按钮添加点击事件
-    document.getElementById('dashboardBtn').addEventListener('click', () => {
-      showPage('dashboard');
-    });
-    
     return;
   }
 
-  // 获取真实的学习数据
-  let todayLearnedCount = 0;
-  let challengeProgress = { completed: 0, total: 20, isCompleted: false };
-  
-  // 从学习历史获取今日学习数
-  if (window.learningHistoryManager) {
-    todayLearnedCount = await window.learningHistoryManager.getTodayLearnedCount();
-    
-    // 获取每日挑战进度
-    const todayChallenge = await window.learningHistoryManager.getTodayChallenge();
-    if (todayChallenge) {
-      challengeProgress = todayChallenge;
-    }
+  // 不替换HTML，只绑定事件监听器（使用事件委托避免重复绑定）
+  const startLearningBtn = document.getElementById('startLearningBtn');
+  const reviewDifficultBtn = document.getElementById('reviewDifficultBtn');
+  const dailyChallengeBtn = document.getElementById('dailyChallengeBtn');
+  const dashboardBtn = document.getElementById('dashboardBtn');
+
+  // 移除旧的事件监听器（如果存在）
+  if (startLearningBtn && !startLearningBtn.dataset.bound) {
+    startLearningBtn.addEventListener('click', () => {
+      window.pendingLearningFilter = 'all';
+      showPage('modeSelection');
+    });
+    startLearningBtn.dataset.bound = 'true';
   }
 
-  // 简化的学习面板HTML：3个按钮 + 2个状态显示
-  learningContent.innerHTML = `
-    <div class="learning-actions">
-      <button class="learning-btn" id="startLearningBtn">
-        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path>
-          <path d="M12 15l-3-3a22 22 0 0 1 2-2 11.5 11.5 0 0 0-5.5 5.5l-3-3a22 22 0 0 1 2-2 11.5 11.5 0 0 0-5.5 5.5"></path>
-          <path d="M12 15l6-6.5a22 22 0 0 1 2 2 11.5 11.5 0 0 0-5.5 5.5"></path>
-          <path d="M12 15l3 3a22 22 0 0 1-2 2 11.5 11.5 0 0 0 5.5-5.5"></path>
-        </svg>
-        开始学习
-      </button>
-      <button class="learning-btn" id="reviewDifficultBtn">
-        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 8h1a4 4 0 0 1 0 8h-1"></path>
-          <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"></path>
-          <line x1="6" y1="1" x2="6" y2="4"></line>
-          <line x1="10" y1="1" x2="10" y2="4"></line>
-          <line x1="14" y1="1" x2="14" y2="4"></line>
-        </svg>
-        复习难点
-      </button>
-      <button class="learning-btn" id="dailyChallengeBtn">
-        <svg class="icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <circle cx="12" cy="12" r="6"></circle>
-          <circle cx="12" cy="12" r="2"></circle>
-        </svg>
-        每日挑战
-      </button>
-    </div>
-    
-    <div class="learning-status-display">
-      <div class="status-item today-learned">
-        <span class="status-icon">${getIconFromLibrary('book')}</span>
-        <span class="status-text">已学习 <strong id="todayLearnedCount">${todayLearnedCount}</strong> 个单词</span>
-      </div>
-      <div class="status-item daily-challenge ${challengeProgress.isCompleted ? 'completed' : ''}">
-        <span class="status-icon">${challengeProgress.isCompleted ? getIconFromLibrary('checkmark') : getIconFromLibrary('target')}</span>
-        <span class="status-text">
-          <strong id="challengeCompleted">${challengeProgress.completed}</strong>/<strong id="challengeTotal">${challengeProgress.total}</strong> 已完成
-        </span>
-        <div class="challenge-progress-bar">
-          <div class="challenge-progress-fill" style="width: ${(challengeProgress.completed / challengeProgress.total) * 100}%"></div>
-        </div>
-      </div>
-    </div>
-  `;
+  if (reviewDifficultBtn && !reviewDifficultBtn.dataset.bound) {
+    reviewDifficultBtn.addEventListener('click', () => {
+      window.pendingLearningFilter = 'difficult';
+      showPage('modeSelection');
+    });
+    reviewDifficultBtn.dataset.bound = 'true';
+  }
 
-  // 为学习按钮添加事件监听器
-  document.getElementById('startLearningBtn').addEventListener('click', () => {
-    pendingLearningFilter = 'all';
-    showPage('modeSelection');
-  });
-
-  document.getElementById('reviewDifficultBtn').addEventListener('click', () => {
-    pendingLearningFilter = 'difficult';
-    showPage('modeSelection');
-  });
-
-  document.getElementById('dailyChallengeBtn').addEventListener('click', async () => {
-    // 生成或获取今日挑战
-    if (window.learningHistoryManager) {
-      const result = await chrome.storage.local.get(['translatedWords', 'learningProgress']);
-      const words = result.translatedWords || {};
-      const progress = result.learningProgress || {};
+  if (dailyChallengeBtn && !dailyChallengeBtn.dataset.bound) {
+    dailyChallengeBtn.addEventListener('click', async () => {
+      // 生成或获取今日挑战
+      if (window.learningHistoryManager) {
+        const result = await chrome.storage.local.get(['translatedWords', 'learningProgress']);
+        const words = result.translatedWords || {};
+        const progress = result.learningProgress || {};
+        
+        await window.learningHistoryManager.generateTodayChallenge(words, progress, 20);
+      }
       
-      await window.learningHistoryManager.generateTodayChallenge(words, progress, 20);
-    }
-    
-    // 每日挑战进入模式选择
-    pendingLearningFilter = 'daily';
-    showPage('modeSelection');
-  });
+      // 每日挑战进入模式选择
+      window.pendingLearningFilter = 'daily';
+      showPage('modeSelection');
+    });
+    dailyChallengeBtn.dataset.bound = 'true';
+  }
 
   // 为header中的Dashboard按钮添加事件监听器
-  const dashboardBtn = document.getElementById('dashboardBtn');
-  if (dashboardBtn) {
+  if (dashboardBtn && !dashboardBtn.dataset.bound) {
     dashboardBtn.addEventListener('click', () => {
       showPage('dashboard');
     });
+    dashboardBtn.dataset.bound = 'true';
   }
 }
 
