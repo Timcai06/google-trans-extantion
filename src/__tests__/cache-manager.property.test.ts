@@ -80,7 +80,7 @@ describe('Cache Manager - Property-Based Tests', () => {
     fc.assert(
       fc.property(
         // Generate array of unique sentences with their POS data
-        fc.array(
+        fc.uniqueArray(
           fc.record({
             sentence: fc.string({ minLength: 5, maxLength: 50 }),
             posTags: fc.array(
@@ -88,7 +88,11 @@ describe('Cache Manager - Property-Based Tests', () => {
               { minLength: 1, maxLength: 10 }
             )
           }),
-          { minLength: 2, maxLength: 10 }
+          {
+            minLength: 2,
+            maxLength: 10,
+            selector: entry => entry.sentence
+          }
         ),
         (entries) => {
           const cache = new SimpleCacheManager();
@@ -109,7 +113,8 @@ describe('Cache Manager - Property-Based Tests', () => {
             if (!retrieved) return false;
             
             return retrieved.sentence === entry.sentence &&
-                   retrieved.posMap.size === entry.posTags.length;
+                   retrieved.posMap.size === entry.posTags.length &&
+                   entry.posTags.every((tag, index) => retrieved.posMap.get(index) === tag);
           });
         }
       ),
