@@ -1,4 +1,11 @@
-import type { LearningProgress, ReviewData, SyncMutation, SyncRequest, SyncResponse, WordData } from '@googletrans/core';
+import type {
+  LearningProgress,
+  ReviewData,
+  SyncMutation,
+  SyncRequest,
+  SyncResponse,
+  WordData,
+} from '@googletrans/core';
 
 export interface LibraryState {
   records: Record<string, SyncMutation>;
@@ -11,8 +18,14 @@ export interface LibraryStore {
   transaction<R>(namespace: string, update: (state: LibraryState) => R): Promise<R>;
 }
 export interface WordInput {
-  text: string; translation: string; context?: string; sourceLanguage?: string;
-  targetLanguage?: string; starred?: boolean; createdAt?: number; legacy?: Record<string, unknown>;
+  text: string;
+  translation: string;
+  context?: string;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  starred?: boolean;
+  createdAt?: number;
+  legacy?: Record<string, unknown>;
 }
 export type LibraryWord = WordData & { id: string; progress: LearningProgress };
 export type ReviewInput = Omit<ReviewData, 'reviewedAt'> & { reviewedAt?: number };
@@ -24,8 +37,16 @@ export interface LibraryBackup {
   /** Original review payloads survive tombstones and validate later restoration. */
   reviewValues?: Record<string, ReviewData>;
 }
-export interface ImportReport { imported: number; skipped: number }
-export interface SyncReport { pages: number; sent: number; received: number; pending: number }
+export interface ImportReport {
+  imported: number;
+  skipped: number;
+}
+export interface SyncReport {
+  pages: number;
+  sent: number;
+  received: number;
+  pending: number;
+}
 export interface LibraryClient {
   readonly namespace: string;
   saveWord(input: WordInput): Promise<LibraryWord>;
@@ -41,5 +62,8 @@ export interface LibraryClient {
   restorePreImportBackup(): Promise<ImportReport>;
   importLegacy(input: unknown): Promise<ImportReport>;
   importAnonymous(): Promise<ImportReport>;
-  sync(transport: (request: SyncRequest) => Promise<SyncResponse>, maxPages?: number): Promise<SyncReport>;
+  sync(
+    transport: (request: SyncRequest) => Promise<SyncResponse>,
+    maxPages?: number,
+  ): Promise<SyncReport>;
 }

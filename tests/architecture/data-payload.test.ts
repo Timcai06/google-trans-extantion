@@ -1,24 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import { Buffer } from 'node:buffer';
 import {
-  MAX_SYNC_BODY_BYTES, packSyncRequest, utf8ByteLength, validateSyncRequest,
-  type SyncMutation, type SyncRequest, type SyncResponse,
+  MAX_SYNC_BODY_BYTES,
+  packSyncRequest,
+  utf8ByteLength,
+  validateSyncRequest,
+  type SyncMutation,
+  type SyncRequest,
+  type SyncResponse,
 } from '../../packages/core/src/index.js';
 import { createLibraryClient, createMemoryStore } from '../../packages/data/src/index.js';
 
 function library() {
   let sequence = 0;
   const store = createMemoryStore();
-  return { store, client: createLibraryClient({ store, deviceId: 'payload', now: () => 1000, id: () => `payload-${++sequence}` }) };
+  return {
+    store,
+    client: createLibraryClient({
+      store,
+      deviceId: 'payload',
+      now: () => 1000,
+      id: () => `payload-${++sequence}`,
+    }),
+  };
 }
-const largeInput = (index: number) => ({ text: `词条 ${index}`, translation: '翻译'.repeat(8000),
-  context: '😀'.repeat(8000), legacy: { original: '历史'.repeat(60_000) } });
+const largeInput = (index: number) => ({
+  text: `词条 ${index}`,
+  translation: '翻译'.repeat(8000),
+  context: '😀'.repeat(8000),
+  legacy: { original: '历史'.repeat(60_000) },
+});
 
 describe('sync HTTP payload budget', () => {
   it('counts UTF-8 correctly without a platform encoder, including surrogate edge cases', () => {
-    for (const text of ['', 'plain ASCII', 'é中😀', '\uD800', '\uDC00', '\uD800x\uDC00', '\uD800\uDC00', '\uD800\uD800\uDC00']) {
+    for (const text of [
+      '',
+      'plain ASCII',
+      'é中😀',
+      '\uD800',
+      '\uDC00',
+      '\uD800x\uDC00',
+      '\uD800\uDC00',
+      '\uD800\uD800\uDC00',
+    ]) {
       expect(utf8ByteLength(text)).toBe(Buffer.byteLength(text, 'utf8'));
-      expect(utf8ByteLength(JSON.stringify(text))).toBe(Buffer.byteLength(JSON.stringify(text), 'utf8'));
+      expect(utf8ByteLength(JSON.stringify(text))).toBe(
+        Buffer.byteLength(JSON.stringify(text), 'utf8'),
+      );
     }
   });
 
@@ -52,12 +80,21 @@ describe('sync HTTP payload budget', () => {
           log.push({ cursor: log.length + 1, mutation });
         }
       }
-      const changes = log.filter(change => change.cursor > request.cursor);
-      return { changes, cursor: changes.at(-1)?.cursor ?? request.cursor,
-        acknowledged: request.changes.map(mutation => mutation.mutationId), hasMore: false };
+      const changes = log.filter((change) => change.cursor > request.cursor);
+      return {
+        changes,
+        cursor: changes.at(-1)?.cursor ?? request.cursor,
+        acknowledged: request.changes.map((mutation) => mutation.mutationId),
+        hasMore: false,
+      };
     };
-    await expect(client.sync(async request => { await transport(request); throw new Error('response lost'); })).rejects.toThrow('response lost');
-    expect(await store.transaction('local', state => Object.keys(state.outbox).length)).toBe(7);
+    await expect(
+      client.sync(async (request) => {
+        await transport(request);
+        throw new Error('response lost');
+      }),
+    ).rejects.toThrow('response lost');
+    expect(await store.transaction('local', (state) => Object.keys(state.outbox).length)).toBe(7);
     expect((await client.sync(transport)).pending).toBe(0);
     expect(requests[1]).toEqual(requests[0]);
     expect(requests.length).toBeGreaterThan(2);
@@ -66,10 +103,21 @@ describe('sync HTTP payload budget', () => {
 
     const { client: single } = library();
     await single.saveWord(largeInput(100));
-    expect((await single.sync(async request => {
-      expect(request.changes).toHaveLength(1);
-      expect(Buffer.byteLength(JSON.stringify(request))).toBeLessThanOrEqual(MAX_SYNC_BODY_BYTES);
-      return { changes: [], cursor: 0, acknowledged: request.changes.map(mutation => mutation.mutationId), hasMore: false };
-    })).pending).toBe(0);
+    expect(
+      (
+        await single.sync(async (request) => {
+          expect(request.changes).toHaveLength(1);
+          expect(Buffer.byteLength(JSON.stringify(request))).toBeLessThanOrEqual(
+            MAX_SYNC_BODY_BYTES,
+          );
+          return {
+            changes: [],
+            cursor: 0,
+            acknowledged: request.changes.map((mutation) => mutation.mutationId),
+            hasMore: false,
+          };
+        })
+      ).pending,
+    ).toBe(0);
   });
 });

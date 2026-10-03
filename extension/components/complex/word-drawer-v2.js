@@ -99,7 +99,7 @@ class WordDrawerV2 {
     link.id = 'word-drawer-v2-styles';
     link.rel = 'stylesheet';
     link.href = chrome.runtime?.getURL ? 
-      chrome.runtime.getURL('extension/components/complex/word-drawer-v2.css') :
+      chrome.runtime.getURL('components/complex/word-drawer-v2.css') : 
       'components/complex/word-drawer-v2.css';
     document.head.appendChild(link);
   }

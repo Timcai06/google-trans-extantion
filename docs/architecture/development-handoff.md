@@ -16,7 +16,8 @@ Chrome 开发者模式应加载仓库根目录的 `manifest.json`。它指向 `a
 ## 常用检查
 
 ```sh
-pnpm run check       # 核心与扩展类型、边界、Vitest、Web/API/扩展构建及扩展包检查
+pnpm run format      # 统一新运行时、共享包与测试的格式
+pnpm run check       # 格式、各端类型、边界、Vitest、Web/API/扩展构建及扩展包检查
 pnpm run check:all   # check + 移动端 iOS/Android JS 导出 + 旧词性 TypeScript/Jest 检查
 pnpm build:mobile    # 仅导出移动端 iOS/Android JavaScript 包
 ```

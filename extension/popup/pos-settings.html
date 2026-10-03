@@ -18,6 +18,23 @@
   <div id="posSettingsRoot"></div>
   
   <script src="components/pos-settings-panel.js"></script>
-  <script src="pos-settings-init.js"></script>
+  <script>
+    // Initialize and show the settings panel
+    document.addEventListener('DOMContentLoaded', async () => {
+      const panel = new POSSettingsPanel();
+      const root = document.getElementById('posSettingsRoot');
+      const panelElement = panel.createPanel();
+      
+      // Remove fixed positioning for standalone page
+      panelElement.style.position = 'relative';
+      
+      root.appendChild(panelElement);
+      
+      // Load configuration and stats
+      await panel.loadConfig();
+      await panel.loadStats();
+      await panel.refreshServices();
+    });
+  </script>
 </body>
 </html>

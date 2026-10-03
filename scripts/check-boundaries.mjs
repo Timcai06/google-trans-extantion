@@ -77,7 +77,9 @@ export function checkCoreBoundaries({ coreRoot, sources }) {
     );
 
     const report = (node, rule, message) => {
-      const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+        node.getStart(sourceFile),
+      );
       violations.push({
         file: path.relative(root, fileName).split(path.sep).join('/'),
         line: line + 1,
@@ -102,7 +104,11 @@ export function checkCoreBoundaries({ coreRoot, sources }) {
       }
       const resolved = resolveRelativeImport(fileName, specifier, sourceMap);
       if (!resolved) {
-        report(node, 'core-import', `Relative import "${specifier}" cannot be resolved inside the core source tree.`);
+        report(
+          node,
+          'core-import',
+          `Relative import "${specifier}" cannot be resolved inside the core source tree.`,
+        );
         return;
       }
       if (!sourceMap.has(resolved)) {
@@ -117,19 +123,26 @@ export function checkCoreBoundaries({ coreRoot, sources }) {
 
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         inspectModuleSpecifier(node.moduleSpecifier);
-      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      } else if (
+        ts.isImportEqualsDeclaration(node) &&
+        ts.isExternalModuleReference(node.moduleReference)
+      ) {
         inspectModuleSpecifier(node.moduleReference.expression);
       } else if (ts.isImportTypeNode(node)) {
         const argument = node.argument;
         if (ts.isLiteralTypeNode(argument)) inspectModuleSpecifier(argument.literal);
       } else if (
-        ts.isCallExpression(node)
-        && (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCall(node.expression))
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequireCall(node.expression))
       ) {
         const specifier = node.arguments[0];
         if (specifier && ts.isStringLiteralLike(specifier)) inspectModuleSpecifier(specifier);
         else if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-          report(node, 'core-import', 'Dynamic import in core must use a literal relative path inside the core source tree.');
+          report(
+            node,
+            'core-import',
+            'Dynamic import in core must use a literal relative path inside the core source tree.',
+          );
         }
       }
 
@@ -153,7 +166,8 @@ function listSourceFiles(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...listSourceFiles(fullPath));
-    else if (SOURCE_EXTENSIONS.includes(path.extname(entry.name))) files.push(path.resolve(fullPath));
+    else if (SOURCE_EXTENSIONS.includes(path.extname(entry.name)))
+      files.push(path.resolve(fullPath));
   }
   return files;
 }
@@ -168,12 +182,14 @@ function resolveRelativeImport(fromFile, specifier, sourceMap) {
   const candidates = [];
   if (ext) {
     candidates.push(rawTarget);
-    if (ext === '.js') candidates.push(`${rawTarget.slice(0, -3)}.ts`, `${rawTarget.slice(0, -3)}.tsx`);
+    if (ext === '.js')
+      candidates.push(`${rawTarget.slice(0, -3)}.ts`, `${rawTarget.slice(0, -3)}.tsx`);
     if (ext === '.mjs') candidates.push(`${rawTarget.slice(0, -4)}.mts`);
     if (ext === '.cjs') candidates.push(`${rawTarget.slice(0, -4)}.cts`);
   } else {
     for (const extension of SOURCE_EXTENSIONS) candidates.push(`${rawTarget}${extension}`);
-    for (const extension of SOURCE_EXTENSIONS) candidates.push(path.join(rawTarget, `index${extension}`));
+    for (const extension of SOURCE_EXTENSIONS)
+      candidates.push(path.join(rawTarget, `index${extension}`));
   }
   return candidates.find((candidate) => sourceMap.has(candidate) || fs.existsSync(candidate));
 }
@@ -188,7 +204,10 @@ function readSource(fileName) {
 
 function isInside(root, candidate) {
   const relative = path.relative(root, path.resolve(candidate));
-  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+  return (
+    relative === '' ||
+    (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+  );
 }
 
 function isRequireCall(expression) {
@@ -214,17 +233,25 @@ function inspectRuntimeGlobal(node, sourceFile, report) {
   }
 
   if (node.text === 'Date' && isNondeterministicDateUse(node)) {
-    report(node, 'clock', 'Core must receive time as input; use an injected timestamp instead of Date.now() or an argument-free Date constructor/call.');
+    report(
+      node,
+      'clock',
+      'Core must receive time as input; use an injected timestamp instead of Date.now() or an argument-free Date constructor/call.',
+    );
   }
 }
 
 function inspectGlobalThisDestructure(node, sourceFile, report) {
-  if (!ts.isVariableDeclaration(node) || !node.initializer || !ts.isObjectBindingPattern(node.name)) return;
+  if (!ts.isVariableDeclaration(node) || !node.initializer || !ts.isObjectBindingPattern(node.name))
+    return;
   if (!ts.isIdentifier(node.initializer) || node.initializer.text !== 'globalThis') return;
 
   for (const element of node.name.elements) {
     const propertyName = element.propertyName ?? element.name;
-    if ((ts.isIdentifier(propertyName) || ts.isStringLiteralLike(propertyName)) && RUNTIME_GLOBALS.has(propertyName.text)) {
+    if (
+      (ts.isIdentifier(propertyName) || ts.isStringLiteralLike(propertyName)) &&
+      RUNTIME_GLOBALS.has(propertyName.text)
+    ) {
       report(propertyName, 'runtime-global', `Core cannot access globalThis.${propertyName.text}.`);
     }
   }
@@ -245,7 +272,11 @@ function isGlobalThisForbiddenAccess(identifier) {
 function getGlobalThisPropertyName(identifier) {
   const parent = identifier.parent;
   if (ts.isPropertyAccessExpression(parent)) return parent.name.text;
-  if (ts.isElementAccessExpression(parent) && parent.argumentExpression && ts.isStringLiteralLike(parent.argumentExpression)) {
+  if (
+    ts.isElementAccessExpression(parent) &&
+    parent.argumentExpression &&
+    ts.isStringLiteralLike(parent.argumentExpression)
+  ) {
     return parent.argumentExpression.text;
   }
   return 'runtime value';
@@ -265,13 +296,28 @@ function isValueReference(identifier) {
   if (ts.isClassDeclaration(parent) && parent.name === identifier) return false;
   if (ts.isVariableDeclaration(parent) && parent.name === identifier) return false;
   if (ts.isParameter(parent) && parent.name === identifier) return false;
-  if (ts.isBindingElement(parent) && (parent.name === identifier || parent.propertyName === identifier)) return false;
-  if (ts.isImportClause(parent) || ts.isImportSpecifier(parent) || ts.isNamespaceImport(parent) || ts.isImportEqualsDeclaration(parent)) return false;
+  if (
+    ts.isBindingElement(parent) &&
+    (parent.name === identifier || parent.propertyName === identifier)
+  )
+    return false;
+  if (
+    ts.isImportClause(parent) ||
+    ts.isImportSpecifier(parent) ||
+    ts.isNamespaceImport(parent) ||
+    ts.isImportEqualsDeclaration(parent)
+  )
+    return false;
   if (ts.isTypeAliasDeclaration(parent) && parent.name === identifier) return false;
   if (ts.isInterfaceDeclaration(parent) && parent.name === identifier) return false;
   if (ts.isEnumDeclaration(parent) && parent.name === identifier) return false;
   if (ts.isTypeParameterDeclaration(parent) && parent.name === identifier) return false;
-  if (ts.isLabeledStatement(parent) || ts.isBreakStatement(parent) || ts.isContinueStatement(parent)) return false;
+  if (
+    ts.isLabeledStatement(parent) ||
+    ts.isBreakStatement(parent) ||
+    ts.isContinueStatement(parent)
+  )
+    return false;
   if (isTypePosition(identifier)) return false;
 
   return true;
@@ -281,7 +327,8 @@ function isTypePosition(identifier) {
   let current = identifier.parent;
   while (current) {
     if (ts.isTypeNode(current)) return true;
-    if (ts.isExpression(current) || ts.isStatement(current) || ts.isSourceFile(current)) return false;
+    if (ts.isExpression(current) || ts.isStatement(current) || ts.isSourceFile(current))
+      return false;
     current = current.parent;
   }
   return false;
@@ -289,10 +336,15 @@ function isTypePosition(identifier) {
 
 function isNondeterministicDateUse(identifier) {
   const parent = identifier.parent;
-  if (ts.isPropertyAccessExpression(parent) && parent.expression === identifier && parent.name.text === 'now') {
+  if (
+    ts.isPropertyAccessExpression(parent) &&
+    parent.expression === identifier &&
+    parent.name.text === 'now'
+  ) {
     return ts.isCallExpression(parent.parent) && parent.parent.expression === parent;
   }
-  if (ts.isNewExpression(parent) && parent.expression === identifier) return !parent.arguments || parent.arguments.length === 0;
+  if (ts.isNewExpression(parent) && parent.expression === identifier)
+    return !parent.arguments || parent.arguments.length === 0;
   if (ts.isCallExpression(parent) && parent.expression === identifier) return true;
   return false;
 }
@@ -303,8 +355,12 @@ function deduplicateAndSort(violations) {
     const key = `${violation.file}:${violation.line}:${violation.column}:${violation.rule}:${violation.message}`;
     unique.set(key, violation);
   }
-  return [...unique.values()].sort((a, b) =>
-    a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule),
+  return [...unique.values()].sort(
+    (a, b) =>
+      a.file.localeCompare(b.file) ||
+      a.line - b.line ||
+      a.column - b.column ||
+      a.rule.localeCompare(b.rule),
   );
 }
 
@@ -316,14 +372,19 @@ function runCli() {
 
   if (violations.length > 0) {
     for (const violation of violations) {
-      const file = violation.file === '.' ? 'packages/core/src' : `packages/core/src/${violation.file}`;
-      process.stderr.write(`${file}:${violation.line}:${violation.column} [${violation.rule}] ${violation.message}\n`);
+      const file =
+        violation.file === '.' ? 'packages/core/src' : `packages/core/src/${violation.file}`;
+      process.stderr.write(
+        `${file}:${violation.line}:${violation.column} [${violation.rule}] ${violation.message}\n`,
+      );
     }
     process.exitCode = 1;
     return;
   }
 
-  process.stdout.write(`Architecture boundary check passed (${listSourceFiles(coreRoot).length} source files).\n`);
+  process.stdout.write(
+    `Architecture boundary check passed (${listSourceFiles(coreRoot).length} source files).\n`,
+  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runCli();

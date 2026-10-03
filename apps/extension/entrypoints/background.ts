@@ -7,10 +7,22 @@ export default defineBackground(() => {
   let deviceId: string;
   const ready = (async () => {
     await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
-    const settings = await chrome.storage.local.get(['googletransDeviceId', 'googletransMigrationReport']);
-    deviceId = typeof settings.googletransDeviceId === 'string' ? settings.googletransDeviceId : crypto.randomUUID();
+    const settings = await chrome.storage.local.get([
+      'googletransDeviceId',
+      'googletransMigrationReport',
+    ]);
+    deviceId =
+      typeof settings.googletransDeviceId === 'string'
+        ? settings.googletransDeviceId
+        : crypto.randomUUID();
     await chrome.storage.local.set({ googletransDeviceId: deviceId });
-    const legacy = await chrome.storage.local.get(['translatedWords', 'learningProgress', 'learningHistory', 'dailyChallenges', 'userSettings']);
+    const legacy = await chrome.storage.local.get([
+      'translatedWords',
+      'learningProgress',
+      'learningHistory',
+      'dailyChallenges',
+      'userSettings',
+    ]);
     const local = createLibraryClient({ store, deviceId, namespace: 'local' });
     const report = await local.importLegacy(legacy);
     if (report.imported || report.skipped || !settings.googletransMigrationReport) {
@@ -21,14 +33,20 @@ export default defineBackground(() => {
   })();
   // Attach immediately so initialization failures do not become unhandled
   // rejections; requests still receive the original failure through ready.
-  void ready.catch(error => console.error('Library initialization failed', error.message));
+  void ready.catch((error) => console.error('Library initialization failed', error.message));
   const handle = createExtensionService({
     ready: () => ready,
     async connection() {
       const result = await chrome.storage.local.get('googletransConnection');
-      return (result.googletransConnection ?? { serverURL: 'http://127.0.0.1:8787', session: null }) as Connection;
+      return (result.googletransConnection ?? {
+        serverURL: 'http://127.0.0.1:8787',
+        session: null,
+      }) as Connection;
     },
-    async client(namespace) { await ready; return createLibraryClient({ store, deviceId, namespace }); },
+    async client(namespace) {
+      await ready;
+      return createLibraryClient({ store, deviceId, namespace });
+    },
     async openLibrary() {
       const popup = chrome.runtime.getManifest().action?.default_popup;
       if (!popup) throw new Error('Library entry is missing');
@@ -39,8 +57,12 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (sender.id !== chrome.runtime.id) return false;
     void handle(message).then(
-      data => sendResponse({ ok: true, data }),
-      error => sendResponse({ ok: false, error: error instanceof Error ? error.message : 'Extension operation failed' }),
+      (data) => sendResponse({ ok: true, data }),
+      (error) =>
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : 'Extension operation failed',
+        }),
     );
     return true;
   });

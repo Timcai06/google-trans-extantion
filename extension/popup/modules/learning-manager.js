@@ -4,10 +4,6 @@
  */
 class LearningManager {
   constructor() {
-    if (typeof globalThis.GoogleTransCore?.applyLearningResult !== 'function') {
-      throw new Error('GoogleTransCore.applyLearningResult must load before LearningManager');
-    }
-    this.learningCore = globalThis.GoogleTransCore;
     this.currentMode = 'flashcard';
     this.currentSession = null;
     this.currentFilter = 'all';
@@ -19,6 +15,44 @@ class LearningManager {
       startTime: null,
       mistakes: []
     };
+    
+    // Initialize Review_Queue_Manager if available
+    this.reviewQueueManager = null;
+    this.initReviewQueue();
+  }
+  
+  /**
+   * Initialize Review_Queue_Manager for optimized review scheduling
+   */
+  async initReviewQueue() {
+    if (typeof ReviewQueueManager !== 'undefined' && !this.reviewQueueManager) {
+      try {
+        this.reviewQueueManager = new ReviewQueueManager({
+          storageKey: 'learning_review_queue',
+          persistDelay: 2000
+        });
+        
+        // Load existing queue from storage
+        const loaded = await this.reviewQueueManager.load();
+        if (!loaded) {
+          // Build queue from learning progress
+          const result = await chrome.storage.local.get(['learningProgress']);
+          const progress = result.learningProgress || {};
+          const words = Object.keys(progress).map(key => ({
+            word: key,
+            ...progress[key]
+          }));
+          
+          // Add words to queue
+          if (words.length > 0) {
+            this.reviewQueueManager.batchAdd(words);
+          }
+        }
+        console.log('[Learning Manager] Review_Queue_Manager initialized');
+      } catch (error) {
+        console.error('[Learning Manager] Failed to initialize Review_Queue_Manager:', error);
+      }
+    }
   }
 
   /**
@@ -714,17 +748,46 @@ class LearningManager {
     try {
       const result = await chrome.storage.local.get(['learningProgress']);
       const progress = result.learningProgress || {};
-      const previous = progress[wordKey];
-      progress[wordKey] = {
-        ...previous,
-        ...this.learningCore.applyLearningResult(previous, isCorrect, Date.now())
-      };
-
-      if (!isCorrect) {
+      
+      if (!progress[wordKey]) {
+        progress[wordKey] = {
+          masteryLevel: 0,
+          reviewCount: 0,
+          correctCount: 0,
+          lastReviewed: Date.now(),
+          nextReview: Date.now(),
+          difficulty: 1.0
+        };
+      }
+      
+      const wordProgress = progress[wordKey];
+      wordProgress.reviewCount++;
+      wordProgress.lastReviewed = Date.now();
+      wordProgress.lastReviewTime = Date.now(); // For Review_Queue_Manager
+      
+      if (isCorrect) {
+        wordProgress.correctCount++;
+        wordProgress.masteryLevel = Math.min(wordProgress.masteryLevel + 1, 5);
+      } else {
+        wordProgress.masteryLevel = Math.max(wordProgress.masteryLevel - 1, 0);
         this.sessionStats.mistakes.push(wordKey);
       }
-
+      
+      // 计算下次复习时间（基于掌握程度）
+      const intervals = [1, 2, 4, 7, 14, 30]; // 天数
+      const interval = intervals[wordProgress.masteryLevel] || 30;
+      wordProgress.nextReview = Date.now() + (interval * 24 * 60 * 60 * 1000);
+      
       await chrome.storage.local.set({ learningProgress: progress });
+      
+      // Update Review_Queue_Manager if available
+      if (this.reviewQueueManager) {
+        try {
+          this.reviewQueueManager.updateAfterReview(wordKey, isCorrect);
+        } catch (error) {
+          console.error('[Learning Manager] Failed to update Review_Queue_Manager:', error);
+        }
+      }
       
       if (isCorrect) {
         this.sessionStats.correct++;

@@ -3,7 +3,27 @@
   "private": true,
   "version": "1.0.0",
   "main": "index.ts",
-  "scripts": { "start": "expo start", "android": "expo start --android", "ios": "expo start --ios", "type-check": "tsc --noEmit", "build": "expo export --platform ios --platform android" },
-  "dependencies": { "@googletrans/core": "workspace:*", "@googletrans/data": "workspace:*", "expo": "57.0.26", "expo-crypto": "57.0.3", "expo-network": "57.0.2", "expo-secure-store": "57.0.4", "expo-sqlite": "57.0.3", "react": "19.2.3", "react-native": "0.86.3", "react-native-safe-area-context": "5.7.0" },
-  "devDependencies": { "@types/react": "19.2.2", "typescript": "5.9.3" }
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "type-check": "tsc --noEmit",
+    "build": "expo export --platform ios --platform android"
+  },
+  "dependencies": {
+    "@googletrans/core": "workspace:*",
+    "@googletrans/data": "workspace:*",
+    "expo": "57.0.26",
+    "expo-crypto": "57.0.3",
+    "expo-network": "57.0.2",
+    "expo-secure-store": "57.0.4",
+    "expo-sqlite": "57.0.3",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "5.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "typescript": "5.9.3"
+  }
 }

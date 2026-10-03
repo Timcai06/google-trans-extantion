@@ -3,7 +3,22 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": { "dev": "vite --host 0.0.0.0", "build": "tsc --noEmit && vite build", "type-check": "tsc --noEmit", "preview": "vite preview --host 0.0.0.0" },
-  "dependencies": { "@googletrans/core": "workspace:*", "@googletrans/data": "workspace:*", "react": "19.2.3", "react-dom": "19.2.3" },
-  "devDependencies": { "@types/react": "19.2.2", "@types/react-dom": "19.2.2", "vite": "7.3.1", "typescript": "5.9.3" }
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "type-check": "tsc --noEmit",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@googletrans/core": "workspace:*",
+    "@googletrans/data": "workspace:*",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "vite": "7.3.1",
+    "typescript": "5.9.3"
+  }
 }

@@ -78,7 +78,10 @@ describe('core architecture boundaries', () => {
     ]);
 
     expect(violations.map(({ rule, message }) => [rule, message])).toEqual([
-      ['core-import', 'Relative import "./missing.js" cannot be resolved inside the core source tree.'],
+      [
+        'core-import',
+        'Relative import "./missing.js" cannot be resolved inside the core source tree.',
+      ],
     ]);
   });
 });

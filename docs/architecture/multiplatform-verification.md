@@ -8,7 +8,8 @@
 
 - core、data、API、Web、移动端、扩展 TypeScript 检查通过。
 - core 导入与平台引用边界检查通过。
-- 12 个 Vitest 文件、94 个测试通过，包含真实 HTTP、SQLite、IndexedDB、并发、迁移、离线重试和备份恢复测试。
+- 10 个 Vitest 文件、85 个测试通过，包含真实 HTTP、SQLite、IndexedDB、并发、迁移、离线重试和备份恢复测试。已删除仅验证第一阶段临时兼容层的 9 个测试；对应兼容层不再进入运行时。
+- 新运行时、共享包与测试的 Prettier 格式检查通过，格式检查已加入 CI。
 - Web、扩展、API 构建与产物检查通过。扩展包包含 8 个文件，仅打包新运行时及共享 Web UI。
 - Expo 实际导出 iOS 与 Android 的 Hermes bundle，通过原生平台打包流程；不是签名安装包或真机运行证据。
 - 原有词性模块类型检查通过；11 个 Jest 套件、145 个测试通过。Jest 仍提示历史异步资源未完全释放，进程正常退出。

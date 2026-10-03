@@ -43,11 +43,21 @@ describe('shared mastery scheduler', () => {
       expect(result.difficulty).toBe(2.5);
       expect(result.nextReview).toBe(reviewedAt + REVIEW_INTERVAL_DAYS[expectedLevel]! * DAY_IN_MS);
     }
-    expect(previous).toEqual({ masteryLevel: level, reviewCount: 8, correctCount: 6, difficulty: 2.5 });
+    expect(previous).toEqual({
+      masteryLevel: level,
+      reviewCount: 8,
+      correctCount: 6,
+      difficulty: 2.5,
+    });
   });
 
   it('uses only the supplied clock and stays deterministic across a review sequence', () => {
-    const initial = Object.freeze({ masteryLevel: 2, reviewCount: 4, correctCount: 3, difficulty: 1.2 });
+    const initial = Object.freeze({
+      masteryLevel: 2,
+      reviewCount: 4,
+      correctCount: 3,
+      difficulty: 1.2,
+    });
     const result = applyLearningResult(initial, false, 0);
     expect(result).toEqual(applyLearningResult(initial, false, 0));
     expect(result.lastReviewed).toBe(0);
@@ -63,8 +73,13 @@ describe('shared mastery scheduler', () => {
 
   it.each([undefined, null, false, 'bad', [], 15])('defaults non-record progress %j', (input) => {
     expect(normalizeLearningProgress(input)).toEqual({
-      masteryLevel: 0, reviewCount: 0, correctCount: 0,
-      lastReviewed: 0, lastReviewTime: 0, nextReview: 0, difficulty: 1,
+      masteryLevel: 0,
+      reviewCount: 0,
+      correctCount: 0,
+      lastReviewed: 0,
+      lastReviewTime: 0,
+      nextReview: 0,
+      difficulty: 1,
     });
   });
 
@@ -80,18 +95,29 @@ describe('shared mastery scheduler', () => {
       annotation: 'retained by the adapter',
     });
     expect(normalizeLearningProgress(malformed)).toEqual({
-      masteryLevel: 5, reviewCount: 0, correctCount: 0,
-      lastReviewed: 0, lastReviewTime: 0, nextReview: 0, difficulty: 1,
+      masteryLevel: 5,
+      reviewCount: 0,
+      correctCount: 0,
+      lastReviewed: 0,
+      lastReviewTime: 0,
+      nextReview: 0,
+      difficulty: 1,
     });
     expect(applyLearningResult(malformed, false, reviewedAt)).toMatchObject({
-      masteryLevel: 4, reviewCount: 1, correctCount: 0,
+      masteryLevel: 4,
+      reviewCount: 1,
+      correctCount: 0,
       nextReview: reviewedAt + 14 * DAY_IN_MS,
     });
     expect(malformed.reviewCount).toBe('7');
   });
 
   it.each([
-    [-100, 0], [2.9, 2], [100, 5], [Number.NaN, 0], [Number.POSITIVE_INFINITY, 0],
+    [-100, 0],
+    [2.9, 2],
+    [100, 5],
+    [Number.NaN, 0],
+    [Number.POSITIVE_INFINITY, 0],
   ])('normalizes mastery %s to %i before scheduling', (input, expectedLevel) => {
     expect(calculateNextReview(input, reviewedAt)).toBe(
       reviewedAt + REVIEW_INTERVAL_DAYS[expectedLevel]! * DAY_IN_MS,
@@ -100,23 +126,28 @@ describe('shared mastery scheduler', () => {
 
   it('repairs invalid counters and caps correct answers at the reviewed count', () => {
     expect(normalizeLearningProgress({ reviewCount: 2, correctCount: 12 })).toMatchObject({
-      reviewCount: 2, correctCount: 2,
+      reviewCount: 2,
+      correctCount: 2,
     });
     expect(normalizeLearningProgress({ reviewCount: 1.5, correctCount: -1 })).toMatchObject({
-      reviewCount: 0, correctCount: 0,
+      reviewCount: 0,
+      correctCount: 0,
     });
   });
 
   it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER])(
-    'rejects invalid or overflowing review timestamp %s', (timestamp) => {
+    'rejects invalid or overflowing review timestamp %s',
+    (timestamp) => {
       expect(() => applyLearningResult(undefined, true, timestamp)).toThrow(RangeError);
     },
   );
 
   it('rejects counter overflow and non-boolean outcomes at the boundary', () => {
-    expect(() => applyLearningResult({ reviewCount: Number.MAX_SAFE_INTEGER }, false, reviewedAt))
-      .toThrow(/reviewCount/);
-    expect(() => applyLearningResult(undefined, 'true' as unknown as boolean, reviewedAt))
-      .toThrow(TypeError);
+    expect(() =>
+      applyLearningResult({ reviewCount: Number.MAX_SAFE_INTEGER }, false, reviewedAt),
+    ).toThrow(/reviewCount/);
+    expect(() => applyLearningResult(undefined, 'true' as unknown as boolean, reviewedAt)).toThrow(
+      TypeError,
+    );
   });
 });

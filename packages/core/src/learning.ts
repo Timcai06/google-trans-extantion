@@ -20,9 +20,7 @@ function normalizeMasteryLevel(value: unknown): MasteryLevel {
 }
 
 function nonNegativeInteger(value: unknown): number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-    ? value
-    : 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 /**
@@ -33,9 +31,10 @@ function nonNegativeInteger(value: unknown): number {
  * Non-object values and arrays are treated as new progress records.
  */
 export function normalizeLearningProgress(input: unknown): LearningProgress {
-  const record = input !== null && typeof input === 'object' && !Array.isArray(input)
-    ? input as Record<string, unknown>
-    : {};
+  const record =
+    input !== null && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
   const reviewCount = nonNegativeInteger(record.reviewCount);
   const difficulty = record.difficulty;
 
@@ -46,9 +45,10 @@ export function normalizeLearningProgress(input: unknown): LearningProgress {
     lastReviewed: nonNegativeInteger(record.lastReviewed),
     lastReviewTime: nonNegativeInteger(record.lastReviewTime),
     nextReview: nonNegativeInteger(record.nextReview),
-    difficulty: typeof difficulty === 'number' && Number.isFinite(difficulty) && difficulty > 0
-      ? difficulty
-      : 1,
+    difficulty:
+      typeof difficulty === 'number' && Number.isFinite(difficulty) && difficulty > 0
+        ? difficulty
+        : 1,
   };
 }
 
@@ -57,7 +57,8 @@ export function calculateNextReview(masteryLevel: number, reviewedAt: number): n
   if (!Number.isSafeInteger(reviewedAt) || reviewedAt < 0) {
     throw new RangeError('reviewedAt must be a non-negative safe integer timestamp');
   }
-  const nextReview = reviewedAt + REVIEW_INTERVAL_DAYS[normalizeMasteryLevel(masteryLevel)] * DAY_IN_MS;
+  const nextReview =
+    reviewedAt + REVIEW_INTERVAL_DAYS[normalizeMasteryLevel(masteryLevel)] * DAY_IN_MS;
   if (!Number.isSafeInteger(nextReview)) {
     throw new RangeError('nextReview exceeds the safe integer timestamp range');
   }

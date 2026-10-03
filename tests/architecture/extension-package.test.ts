@@ -26,9 +26,11 @@ interface FixtureManifest {
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) =>
-    rm(directory, { recursive: true, force: true }),
-  ));
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 async function packageFixture(changeManifest: (manifest: FixtureManifest) => void) {
@@ -43,10 +45,16 @@ async function packageFixture(changeManifest: (manifest: FixtureManifest) => voi
     version: '2.1.0',
     action: { default_popup: 'extension/popup/popup.html' },
     background: { service_worker: 'background.js' },
-    content_scripts: [{
-      matches: ['<all_urls>'], run_at: 'document_idle', world: 'ISOLATED', all_frames: false,
-      js: ['content-scripts/content.js'], css: ['content-scripts/content.css'],
-    }],
+    content_scripts: [
+      {
+        matches: ['<all_urls>'],
+        run_at: 'document_idle',
+        world: 'ISOLATED',
+        all_frames: false,
+        js: ['content-scripts/content.js'],
+        css: ['content-scripts/content.css'],
+      },
+    ],
     permissions: ['storage', 'activeTab', 'tabs'],
     optional_permissions: ['webNavigation'],
     host_permissions: ['<all_urls>'],
@@ -66,21 +74,26 @@ async function packageFixture(changeManifest: (manifest: FixtureManifest) => voi
 
 describe('extension package background contract', () => {
   it('rejects a package without a background manifest entry', async () => {
-    const fixture = await packageFixture((manifest) => { delete manifest.background; });
+    const fixture = await packageFixture((manifest) => {
+      delete manifest.background;
+    });
     await expect(checkExtensionBuild(fixture)).rejects.toThrow(
       'Expected built background service worker at background.js',
     );
   });
 
   it('rejects a background entry without a service_worker', async () => {
-    const fixture = await packageFixture((manifest) => { manifest.background = {}; });
+    const fixture = await packageFixture((manifest) => {
+      manifest.background = {};
+    });
     await expect(checkExtensionBuild(fixture)).rejects.toThrow(
       'Expected built background service worker at background.js',
     );
   });
 
   it.each(['extension/background/background.js', 'other-worker.js', ''])(
-    'rejects a background path other than the built entry: %s', async (path) => {
+    'rejects a background path other than the built entry: %s',
+    async (path) => {
       const fixture = await packageFixture((manifest) => {
         manifest.background = { service_worker: path };
       });

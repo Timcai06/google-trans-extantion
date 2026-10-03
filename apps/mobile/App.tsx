@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Button, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Button,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
@@ -7,62 +18,564 @@ import * as Network from 'expo-network';
 import { createLibraryClient, type LibraryStore, type LibraryWord } from '@googletrans/data';
 import type { SyncResponse } from '@googletrans/core';
 import { createSQLiteStore } from './src/sqlite-store';
-import { api, readConnection, validateServerURL, writeConnection, type Connection, type Session } from './src/connection';
+import {
+  api,
+  readConnection,
+  validateServerURL,
+  writeConnection,
+  type Connection,
+  type Session,
+} from './src/connection';
 
-const blank = { text: '', translation: '', context: '', sourceLanguage: 'en', targetLanguage: 'zh-CN' };
-function Input({ label, value, onChangeText, ...props }: { label: string; value: string; onChangeText: (value: string) => void } & Omit<React.ComponentProps<typeof TextInput>, 'value' | 'onChangeText'>) {
-  return <View style={styles.field}><Text style={styles.label}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} style={styles.input} {...props} /></View>;
+const blank = {
+  text: '',
+  translation: '',
+  context: '',
+  sourceLanguage: 'en',
+  targetLanguage: 'zh-CN',
+};
+function Input({
+  label,
+  value,
+  onChangeText,
+  ...props
+}: { label: string; value: string; onChangeText: (value: string) => void } & Omit<
+  React.ComponentProps<typeof TextInput>,
+  'value' | 'onChangeText'
+>) {
+  return (
+    <View style={styles.field}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        value={value}
+        onChangeText={onChangeText}
+        style={styles.input}
+        {...props}
+      />
+    </View>
+  );
 }
-export default function App() { return <SafeAreaProvider><SafeAreaView style={styles.safe}><Library /></SafeAreaView></SafeAreaProvider>; }
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.safe}>
+        <Library />
+      </SafeAreaView>
+    </SafeAreaProvider>
+  );
+}
 function Library() {
   const [store, setStore] = useState<LibraryStore | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [connection, setConnection] = useState<Connection | null>(null);
   const [serverURL, setServerURL] = useState('http://127.0.0.1:8787');
-  const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
-  const [words, setWords] = useState<LibraryWord[]>([]); const [form, setForm] = useState(blank); const [editing, setEditing] = useState<LibraryWord | null>(null);
-  const [search, setSearch] = useState(''); const [filter, setFilter] = useState<'all' | 'starred' | 'due'>('all');
-  const [busy, setBusy] = useState(false); const [message, setMessage] = useState('正在打开本机词库…'); const [error, setError] = useState('');
-  const [reviewId, setReviewId] = useState<string | null>(null); const [revealed, setRevealed] = useState(false); const [answer, setAnswer] = useState(''); const [reviewMode, setReviewMode] = useState<'flashcard' | 'quiz' | 'spelling'>('flashcard');
-  const [backupJSON, setBackupJSON] = useState(''); const [online, setOnline] = useState(true);
-  const namespace = connection?.session?.user.id ?? 'local'; const namespaceRef = useRef(namespace); namespaceRef.current = namespace;
-  const client = useMemo(() => store && deviceId ? createLibraryClient({ store, deviceId, namespace, id: Crypto.randomUUID }) : null, [store, deviceId, namespace]);
-  const run = useCallback(async (task: () => Promise<void>) => { setBusy(true); setError(''); try { await task(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); } }, []);
-  const refresh = useCallback(async () => { if (!client) return; const next = await client.listWords(); if (namespaceRef.current === client.namespace) setWords(next); }, [client]);
-  useEffect(() => { void run(async () => {
-    const database = await SQLite.openDatabaseAsync('googletrans-library-v1.db');
-    await database.execAsync('PRAGMA journal_mode = WAL;');
-    const libraryStore = createSQLiteStore(database);
-    const id = await libraryStore.transaction('installation', state => { const existing = state.meta.deviceId; const next = typeof existing === 'string' ? existing : Crypto.randomUUID(); state.meta.deviceId = next; return next; });
-    const value = await readConnection(); setStore(libraryStore); setDeviceId(id); setConnection(value); setServerURL(value.serverURL); setMessage('词条先保存在 SQLite，本机和账号词库独立。');
-  }); }, [run]);
-  useEffect(() => { if (client) void run(refresh); }, [client, refresh, run]);
-  const persistConnection = async (value: Connection) => { await writeConnection(value); setWords([]); setForm(blank); setEditing(null); setReviewId(null); setConnection(value); };
-  const sync = useCallback(async () => { if (!connection?.session || !client) throw new Error('请先登录账号。'); const report = await client.sync(request => api<SyncResponse>(connection, '/v1/sync', request)); await refresh(); setMessage(`同步完成：发送 ${report.sent}，接收 ${report.received}，待上传 ${report.pending}。`); }, [connection, client, refresh]);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [words, setWords] = useState<LibraryWord[]>([]);
+  const [form, setForm] = useState(blank);
+  const [editing, setEditing] = useState<LibraryWord | null>(null);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'all' | 'starred' | 'due'>('all');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('正在打开本机词库…');
+  const [error, setError] = useState('');
+  const [reviewId, setReviewId] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const [answer, setAnswer] = useState('');
+  const [reviewMode, setReviewMode] = useState<'flashcard' | 'quiz' | 'spelling'>('flashcard');
+  const [backupJSON, setBackupJSON] = useState('');
+  const [online, setOnline] = useState(true);
+  const namespace = connection?.session?.user.id ?? 'local';
+  const namespaceRef = useRef(namespace);
+  namespaceRef.current = namespace;
+  const client = useMemo(
+    () =>
+      store && deviceId
+        ? createLibraryClient({ store, deviceId, namespace, id: Crypto.randomUUID })
+        : null,
+    [store, deviceId, namespace],
+  );
+  const run = useCallback(async (task: () => Promise<void>) => {
+    setBusy(true);
+    setError('');
+    try {
+      await task();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+  const refresh = useCallback(async () => {
+    if (!client) return;
+    const next = await client.listWords();
+    if (namespaceRef.current === client.namespace) setWords(next);
+  }, [client]);
+  useEffect(() => {
+    void run(async () => {
+      const database = await SQLite.openDatabaseAsync('googletrans-library-v1.db');
+      await database.execAsync('PRAGMA journal_mode = WAL;');
+      const libraryStore = createSQLiteStore(database);
+      const id = await libraryStore.transaction('installation', (state) => {
+        const existing = state.meta.deviceId;
+        const next = typeof existing === 'string' ? existing : Crypto.randomUUID();
+        state.meta.deviceId = next;
+        return next;
+      });
+      const value = await readConnection();
+      setStore(libraryStore);
+      setDeviceId(id);
+      setConnection(value);
+      setServerURL(value.serverURL);
+      setMessage('词条先保存在 SQLite，本机和账号词库独立。');
+    });
+  }, [run]);
+  useEffect(() => {
+    if (client) void run(refresh);
+  }, [client, refresh, run]);
+  const persistConnection = async (value: Connection) => {
+    await writeConnection(value);
+    setWords([]);
+    setForm(blank);
+    setEditing(null);
+    setReviewId(null);
+    setConnection(value);
+  };
+  const sync = useCallback(async () => {
+    if (!connection?.session || !client) throw new Error('请先登录账号。');
+    const report = await client.sync((request) =>
+      api<SyncResponse>(connection, '/v1/sync', request),
+    );
+    await refresh();
+    setMessage(
+      `同步完成：发送 ${report.sent}，接收 ${report.received}，待上传 ${report.pending}。`,
+    );
+  }, [connection, client, refresh]);
   useEffect(() => {
     let active = true;
-    const update = (state: Network.NetworkState) => { const connected = Boolean(state.isConnected && state.isInternetReachable !== false); setOnline(connected); if (connected && connection?.session) void run(sync); };
-    void Network.getNetworkStateAsync().then(state => { if (active) update(state); }).catch(() => {});
+    const update = (state: Network.NetworkState) => {
+      const connected = Boolean(state.isConnected && state.isInternetReachable !== false);
+      setOnline(connected);
+      if (connected && connection?.session) void run(sync);
+    };
+    void Network.getNetworkStateAsync()
+      .then((state) => {
+        if (active) update(state);
+      })
+      .catch(() => {});
     const network = Network.addNetworkStateListener(update);
-    const app = AppState.addEventListener('change', state => { if (state === 'active') { void refresh().catch(cause => setError(String(cause))); void Network.getNetworkStateAsync().then(update).catch(() => {}); } });
-    return () => { active = false; network.remove(); app.remove(); };
+    const app = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void refresh().catch((cause) => setError(String(cause)));
+        void Network.getNetworkStateAsync()
+          .then(update)
+          .catch(() => {});
+      }
+    });
+    return () => {
+      active = false;
+      network.remove();
+      app.remove();
+    };
   }, [connection, refresh, run, sync]);
-  const mutate = (task: () => Promise<unknown>) => run(async () => { if (!connection || !client) throw new Error('词库尚未初始化'); await task(); await refresh(); setMessage('已保存到本机。'); if (connection.session && online) await sync(); });
-  const confirmAction = (title: string, task: () => void) => Alert.alert(title, '操作作用于当前词库。', [{ text: '取消', style: 'cancel' }, { text: '继续', onPress: task }]);
-  const authenticate = (action: 'login' | 'register') => run(async () => { const url = validateServerURL(serverURL); const session = await api<Session>({ serverURL: url, session: null }, `/v1/auth/${action}`, { email, password }); await persistConnection({ serverURL: url, session }); setPassword(''); setMessage('已切换账号词库；需明确导入本机匿名词库。'); });
-  const due = words.filter(word => word.progress.nextReview <= Date.now());
-  const visible = words.filter(word => `${word.text} ${word.translation} ${word.context}`.toLowerCase().includes(search.toLowerCase()) && (filter !== 'starred' || word.starred) && (filter !== 'due' || word.progress.nextReview <= Date.now()));
-  const review = words.find(word => word.id === reviewId);
-  const submit = (correct: boolean) => mutate(async () => { if (!client || !review) return; await client.submitReview({ wordId: review.id, correct, mode: reviewMode }); setReviewId(due.find(word => word.id !== review.id)?.id ?? null); setRevealed(false); setAnswer(''); });
-  const button = (title: string, task: () => void, disabled = false) => <View style={styles.button}><Button title={title} disabled={busy || !client || !connection || disabled} onPress={task} color="#294f5b" /></View>;
-  return <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><Text style={styles.title}>GoogleTrans 词库</Text><Text>{connection?.session?.user.email ?? '本机匿名词库'} · {online ? '在线' : '离线，仍可保存'}</Text>
-    <View style={styles.panel}><Text style={styles.heading}>账号与同步</Text><Input label="服务器地址" value={serverURL} onChangeText={setServerURL} autoCapitalize="none" keyboardType="url" /><Text style={styles.hint}>真机开发时填电脑局域网地址；生产使用 HTTPS。</Text>{button('保存服务器', () => void run(async () => { const url = validateServerURL(serverURL); await persistConnection({ serverURL: url, session: url === connection?.serverURL ? connection.session : null }); setMessage('服务器已保存，切换服务器会退出原会话。'); }))}
-      {connection?.session ? <>{button('立即同步', () => void run(sync))}{button('导入本机词库到账号', () => confirmAction('复制本机匿名词库到账号？', () => void mutate(() => client!.importAnonymous())))}{button('退出', () => void run(async () => { const previous = connection; await persistConnection({ ...previous, session: null }); setMessage('已退出，本地账号词库保留。'); try { await api(previous, '/v1/auth/logout', {}); } catch { setMessage('本机已退出，服务器会话撤销未确认。'); } }))}</> : <><Input label="邮箱" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" autoComplete="email" /><Input label="密码（至少 8 位）" value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" />{button('登录', () => void authenticate('login'), !email || password.length < 8)}{button('注册', () => void authenticate('register'), !email || password.length < 8)}</>}</View>
-    {busy && <ActivityIndicator accessibilityLabel="处理中" />}<Text accessibilityLiveRegion="polite">{message}</Text>{error !== '' && <Text style={styles.error} accessibilityLiveRegion="assertive">{error} 本地保存内容保留，可稍后重试同步。</Text>}
-    <View style={styles.panel}><Text style={styles.heading}>{editing ? '编辑词条' : '添加词条'}</Text><Input label="单词" value={form.text} onChangeText={text => setForm({ ...form, text })} editable={!editing} maxLength={500} /><Input label="翻译" value={form.translation} onChangeText={translation => setForm({ ...form, translation })} maxLength={16000} /><Input label="上下文" value={form.context} onChangeText={context => setForm({ ...form, context })} multiline maxLength={16000} /><Input label="源语言" value={form.sourceLanguage} onChangeText={sourceLanguage => setForm({ ...form, sourceLanguage })} editable={!editing} maxLength={32} /><Input label="目标语言" value={form.targetLanguage} onChangeText={targetLanguage => setForm({ ...form, targetLanguage })} maxLength={32} />{button('保存词条', () => void mutate(async () => { await client!.saveWord({ ...form, ...(editing ? { starred: editing.starred, createdAt: editing.createdAt, legacy: editing.legacy } : {}) }); setForm(blank); setEditing(null); }), !form.text.trim())}{button('服务器翻译', () => void run(async () => { const submitted = { ...form }; const result = await api<{ translation: string }>(connection!, '/v1/translate', { text: submitted.text, sourceLanguage: submitted.sourceLanguage, targetLanguage: submitted.targetLanguage }); setForm(previous => previous.text === submitted.text && previous.translation === submitted.translation && previous.sourceLanguage === submitted.sourceLanguage && previous.targetLanguage === submitted.targetLanguage ? { ...previous, translation: result.translation } : previous); }), !connection?.session || !form.text)}{editing && button('取消编辑', () => { setEditing(null); setForm(blank); })}</View>
-    <View style={styles.panel}><Text style={styles.heading}>复习 · {due.length} 条到期</Text><View style={styles.row}>{(['flashcard', 'quiz', 'spelling'] as const).map(mode => <View key={mode}>{button(`${reviewMode === mode ? '✓ ' : ''}${mode === 'flashcard' ? '闪卡' : mode === 'quiz' ? '翻译问答' : '拼写'}`, () => { setReviewMode(mode); setAnswer(''); setRevealed(false); })}</View>)}</View>{review ? <><Text style={styles.heading}>{reviewMode === 'spelling' ? review.translation : review.text}</Text>{reviewMode !== 'flashcard' && <Input label={reviewMode === 'spelling' ? '输入单词' : '输入翻译'} value={answer} onChangeText={setAnswer} />}{revealed && <Text>{reviewMode === 'spelling' ? review.text : review.translation}</Text>}{button('显示答案', () => setRevealed(true))}{reviewMode === 'flashcard' ? <>{button('记住了', () => void submit(true), !revealed)}{button('再练习', () => void submit(false), !revealed)}</> : button('提交答案', () => void submit(answer.normalize('NFKC').trim().toLowerCase() === (reviewMode === 'spelling' ? review.text : review.translation).normalize('NFKC').trim().toLowerCase()), !answer)}</> : button('开始到期复习', () => { setReviewId(due[0]?.id ?? null); setRevealed(false); }, !due.length)}</View>
-    <View style={styles.panel}><Text style={styles.heading}>词库 · {words.length} 条</Text><Input label="搜索单词、翻译或上下文" value={search} onChangeText={setSearch} /><View style={styles.row}>{(['all', 'starred', 'due'] as const).map(item => <View key={item}>{button(`${filter === item ? '✓ ' : ''}${item === 'all' ? '全部' : item === 'starred' ? '收藏' : '到期'}`, () => setFilter(item))}</View>)}</View>{visible.length === 0 && <Text>暂无符合条件的词条。</Text>}{visible.map(word => <View style={styles.word} key={word.id}><Text style={styles.heading}>{word.text}</Text><Text>{word.translation || '未填写翻译'}</Text>{word.context !== '' && <Text style={styles.context}>{word.context}</Text>}<Text style={styles.hint}>{word.sourceLanguage} → {word.targetLanguage} · 等级 {word.progress.masteryLevel}/5 · 复习 {word.progress.reviewCount} 次 · {word.progress.nextReview <= Date.now() ? '已到期' : `下次 ${new Date(word.progress.nextReview).toLocaleString()}`}</Text>{button(word.starred ? '★ 取消收藏' : '☆ 收藏', () => void mutate(() => client!.setStarred(word.id, !word.starred)))}{button('编辑', () => { setEditing(word); setForm({ text: word.text, translation: word.translation, context: word.context, sourceLanguage: word.sourceLanguage, targetLanguage: word.targetLanguage }); })}{button('删除', () => confirmAction(`删除「${word.text}」？`, () => void mutate(() => client!.deleteWord(word.id))))}{button('复习此词', () => { setReviewId(word.id); setRevealed(false); setAnswer(''); })}</View>)}</View>
-    <View style={styles.panel}><Text style={styles.heading}>备份与恢复</Text>{button('导出备份并分享', () => void run(async () => { const serialized = JSON.stringify(await client!.exportBackup(), null, 2); setBackupJSON(serialized); await Share.share({ message: serialized, title: 'GoogleTrans 词库备份' }); setMessage('备份已生成，不包含 token 或密码。'); }))}<Input label="备份 JSON（粘贴导入或复制保存）" value={backupJSON} onChangeText={setBackupJSON} multiline autoCapitalize="none" />{button('导入备份', () => confirmAction('合并备份到当前词库？', () => void mutate(() => client!.importBackup(JSON.parse(backupJSON)))), !backupJSON)}{button('恢复导入前备份', () => confirmAction('恢复最近一次导入前备份？', () => void mutate(() => client!.restorePreImportBackup())))}</View>
-  </ScrollView>;
+  const mutate = (task: () => Promise<unknown>) =>
+    run(async () => {
+      if (!connection || !client) throw new Error('词库尚未初始化');
+      await task();
+      await refresh();
+      setMessage('已保存到本机。');
+      if (connection.session && online) await sync();
+    });
+  const confirmAction = (title: string, task: () => void) =>
+    Alert.alert(title, '操作作用于当前词库。', [
+      { text: '取消', style: 'cancel' },
+      { text: '继续', onPress: task },
+    ]);
+  const authenticate = (action: 'login' | 'register') =>
+    run(async () => {
+      const url = validateServerURL(serverURL);
+      const session = await api<Session>({ serverURL: url, session: null }, `/v1/auth/${action}`, {
+        email,
+        password,
+      });
+      await persistConnection({ serverURL: url, session });
+      setPassword('');
+      setMessage('已切换账号词库；需明确导入本机匿名词库。');
+    });
+  const due = words.filter((word) => word.progress.nextReview <= Date.now());
+  const visible = words.filter(
+    (word) =>
+      `${word.text} ${word.translation} ${word.context}`
+        .toLowerCase()
+        .includes(search.toLowerCase()) &&
+      (filter !== 'starred' || word.starred) &&
+      (filter !== 'due' || word.progress.nextReview <= Date.now()),
+  );
+  const review = words.find((word) => word.id === reviewId);
+  const submit = (correct: boolean) =>
+    mutate(async () => {
+      if (!client || !review) return;
+      await client.submitReview({ wordId: review.id, correct, mode: reviewMode });
+      setReviewId(due.find((word) => word.id !== review.id)?.id ?? null);
+      setRevealed(false);
+      setAnswer('');
+    });
+  const button = (title: string, task: () => void, disabled = false) => (
+    <View style={styles.button}>
+      <Button
+        title={title}
+        disabled={busy || !client || !connection || disabled}
+        onPress={task}
+        color="#294f5b"
+      />
+    </View>
+  );
+  return (
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={styles.title}>GoogleTrans 词库</Text>
+      <Text>
+        {connection?.session?.user.email ?? '本机匿名词库'} · {online ? '在线' : '离线，仍可保存'}
+      </Text>
+      <View style={styles.panel}>
+        <Text style={styles.heading}>账号与同步</Text>
+        <Input
+          label="服务器地址"
+          value={serverURL}
+          onChangeText={setServerURL}
+          autoCapitalize="none"
+          keyboardType="url"
+        />
+        <Text style={styles.hint}>真机开发时填电脑局域网地址；生产使用 HTTPS。</Text>
+        {button(
+          '保存服务器',
+          () =>
+            void run(async () => {
+              const url = validateServerURL(serverURL);
+              await persistConnection({
+                serverURL: url,
+                session: url === connection?.serverURL ? connection.session : null,
+              });
+              setMessage('服务器已保存，切换服务器会退出原会话。');
+            }),
+        )}
+        {connection?.session ? (
+          <>
+            {button('立即同步', () => void run(sync))}
+            {button('导入本机词库到账号', () =>
+              confirmAction(
+                '复制本机匿名词库到账号？',
+                () => void mutate(() => client!.importAnonymous()),
+              ),
+            )}
+            {button(
+              '退出',
+              () =>
+                void run(async () => {
+                  const previous = connection;
+                  await persistConnection({ ...previous, session: null });
+                  setMessage('已退出，本地账号词库保留。');
+                  try {
+                    await api(previous, '/v1/auth/logout', {});
+                  } catch {
+                    setMessage('本机已退出，服务器会话撤销未确认。');
+                  }
+                }),
+            )}
+          </>
+        ) : (
+          <>
+            <Input
+              label="邮箱"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+            />
+            <Input
+              label="密码（至少 8 位）"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoComplete="password"
+            />
+            {button('登录', () => void authenticate('login'), !email || password.length < 8)}
+            {button('注册', () => void authenticate('register'), !email || password.length < 8)}
+          </>
+        )}
+      </View>
+      {busy && <ActivityIndicator accessibilityLabel="处理中" />}
+      <Text accessibilityLiveRegion="polite">{message}</Text>
+      {error !== '' && (
+        <Text style={styles.error} accessibilityLiveRegion="assertive">
+          {error} 本地保存内容保留，可稍后重试同步。
+        </Text>
+      )}
+      <View style={styles.panel}>
+        <Text style={styles.heading}>{editing ? '编辑词条' : '添加词条'}</Text>
+        <Input
+          label="单词"
+          value={form.text}
+          onChangeText={(text) => setForm({ ...form, text })}
+          editable={!editing}
+          maxLength={500}
+        />
+        <Input
+          label="翻译"
+          value={form.translation}
+          onChangeText={(translation) => setForm({ ...form, translation })}
+          maxLength={16000}
+        />
+        <Input
+          label="上下文"
+          value={form.context}
+          onChangeText={(context) => setForm({ ...form, context })}
+          multiline
+          maxLength={16000}
+        />
+        <Input
+          label="源语言"
+          value={form.sourceLanguage}
+          onChangeText={(sourceLanguage) => setForm({ ...form, sourceLanguage })}
+          editable={!editing}
+          maxLength={32}
+        />
+        <Input
+          label="目标语言"
+          value={form.targetLanguage}
+          onChangeText={(targetLanguage) => setForm({ ...form, targetLanguage })}
+          maxLength={32}
+        />
+        {button(
+          '保存词条',
+          () =>
+            void mutate(async () => {
+              await client!.saveWord({
+                ...form,
+                ...(editing
+                  ? {
+                      starred: editing.starred,
+                      createdAt: editing.createdAt,
+                      legacy: editing.legacy,
+                    }
+                  : {}),
+              });
+              setForm(blank);
+              setEditing(null);
+            }),
+          !form.text.trim(),
+        )}
+        {button(
+          '服务器翻译',
+          () =>
+            void run(async () => {
+              const submitted = { ...form };
+              const result = await api<{ translation: string }>(connection!, '/v1/translate', {
+                text: submitted.text,
+                sourceLanguage: submitted.sourceLanguage,
+                targetLanguage: submitted.targetLanguage,
+              });
+              setForm((previous) =>
+                previous.text === submitted.text &&
+                previous.translation === submitted.translation &&
+                previous.sourceLanguage === submitted.sourceLanguage &&
+                previous.targetLanguage === submitted.targetLanguage
+                  ? { ...previous, translation: result.translation }
+                  : previous,
+              );
+            }),
+          !connection?.session || !form.text,
+        )}
+        {editing &&
+          button('取消编辑', () => {
+            setEditing(null);
+            setForm(blank);
+          })}
+      </View>
+      <View style={styles.panel}>
+        <Text style={styles.heading}>复习 · {due.length} 条到期</Text>
+        <View style={styles.row}>
+          {(['flashcard', 'quiz', 'spelling'] as const).map((mode) => (
+            <View key={mode}>
+              {button(
+                `${reviewMode === mode ? '✓ ' : ''}${mode === 'flashcard' ? '闪卡' : mode === 'quiz' ? '翻译问答' : '拼写'}`,
+                () => {
+                  setReviewMode(mode);
+                  setAnswer('');
+                  setRevealed(false);
+                },
+              )}
+            </View>
+          ))}
+        </View>
+        {review ? (
+          <>
+            <Text style={styles.heading}>
+              {reviewMode === 'spelling' ? review.translation : review.text}
+            </Text>
+            {reviewMode !== 'flashcard' && (
+              <Input
+                label={reviewMode === 'spelling' ? '输入单词' : '输入翻译'}
+                value={answer}
+                onChangeText={setAnswer}
+              />
+            )}
+            {revealed && (
+              <Text>{reviewMode === 'spelling' ? review.text : review.translation}</Text>
+            )}
+            {button('显示答案', () => setRevealed(true))}
+            {reviewMode === 'flashcard' ? (
+              <>
+                {button('记住了', () => void submit(true), !revealed)}
+                {button('再练习', () => void submit(false), !revealed)}
+              </>
+            ) : (
+              button(
+                '提交答案',
+                () =>
+                  void submit(
+                    answer.normalize('NFKC').trim().toLowerCase() ===
+                      (reviewMode === 'spelling' ? review.text : review.translation)
+                        .normalize('NFKC')
+                        .trim()
+                        .toLowerCase(),
+                  ),
+                !answer,
+              )
+            )}
+          </>
+        ) : (
+          button(
+            '开始到期复习',
+            () => {
+              setReviewId(due[0]?.id ?? null);
+              setRevealed(false);
+            },
+            !due.length,
+          )
+        )}
+      </View>
+      <View style={styles.panel}>
+        <Text style={styles.heading}>词库 · {words.length} 条</Text>
+        <Input label="搜索单词、翻译或上下文" value={search} onChangeText={setSearch} />
+        <View style={styles.row}>
+          {(['all', 'starred', 'due'] as const).map((item) => (
+            <View key={item}>
+              {button(
+                `${filter === item ? '✓ ' : ''}${item === 'all' ? '全部' : item === 'starred' ? '收藏' : '到期'}`,
+                () => setFilter(item),
+              )}
+            </View>
+          ))}
+        </View>
+        {visible.length === 0 && <Text>暂无符合条件的词条。</Text>}
+        {visible.map((word) => (
+          <View style={styles.word} key={word.id}>
+            <Text style={styles.heading}>{word.text}</Text>
+            <Text>{word.translation || '未填写翻译'}</Text>
+            {word.context !== '' && <Text style={styles.context}>{word.context}</Text>}
+            <Text style={styles.hint}>
+              {word.sourceLanguage} → {word.targetLanguage} · 等级 {word.progress.masteryLevel}/5 ·
+              复习 {word.progress.reviewCount} 次 ·{' '}
+              {word.progress.nextReview <= Date.now()
+                ? '已到期'
+                : `下次 ${new Date(word.progress.nextReview).toLocaleString()}`}
+            </Text>
+            {button(
+              word.starred ? '★ 取消收藏' : '☆ 收藏',
+              () => void mutate(() => client!.setStarred(word.id, !word.starred)),
+            )}
+            {button('编辑', () => {
+              setEditing(word);
+              setForm({
+                text: word.text,
+                translation: word.translation,
+                context: word.context,
+                sourceLanguage: word.sourceLanguage,
+                targetLanguage: word.targetLanguage,
+              });
+            })}
+            {button('删除', () =>
+              confirmAction(
+                `删除「${word.text}」？`,
+                () => void mutate(() => client!.deleteWord(word.id)),
+              ),
+            )}
+            {button('复习此词', () => {
+              setReviewId(word.id);
+              setRevealed(false);
+              setAnswer('');
+            })}
+          </View>
+        ))}
+      </View>
+      <View style={styles.panel}>
+        <Text style={styles.heading}>备份与恢复</Text>
+        {button(
+          '导出备份并分享',
+          () =>
+            void run(async () => {
+              const serialized = JSON.stringify(await client!.exportBackup(), null, 2);
+              setBackupJSON(serialized);
+              await Share.share({ message: serialized, title: 'GoogleTrans 词库备份' });
+              setMessage('备份已生成，不包含 token 或密码。');
+            }),
+        )}
+        <Input
+          label="备份 JSON（粘贴导入或复制保存）"
+          value={backupJSON}
+          onChangeText={setBackupJSON}
+          multiline
+          autoCapitalize="none"
+        />
+        {button(
+          '导入备份',
+          () =>
+            confirmAction(
+              '合并备份到当前词库？',
+              () => void mutate(() => client!.importBackup(JSON.parse(backupJSON))),
+            ),
+          !backupJSON,
+        )}
+        {button('恢复导入前备份', () =>
+          confirmAction(
+            '恢复最近一次导入前备份？',
+            () => void mutate(() => client!.restorePreImportBackup()),
+          ),
+        )}
+      </View>
+    </ScrollView>
+  );
 }
-const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: '#f3f6f7' }, content: { padding: 18, paddingBottom: 40 }, title: { fontSize: 27, fontWeight: '700', color: '#17303a', marginBottom: 8 }, heading: { fontSize: 18, fontWeight: '600', color: '#17303a', marginBottom: 12 }, panel: { padding: 16, backgroundColor: '#fff', borderRadius: 12, marginVertical: 14, borderWidth: 1, borderColor: '#d6e0e3' }, field: { marginBottom: 12 }, label: { fontWeight: '600', marginBottom: 6, color: '#17303a' }, input: { padding: 10, borderColor: '#9caeb5', borderWidth: 1, borderRadius: 6, color: '#17303a', minHeight: 44, backgroundColor: '#fff' }, button: { marginVertical: 5 }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, hint: { color: '#506873', fontSize: 13, marginVertical: 8, lineHeight: 19 }, error: { color: '#a22320', padding: 12, backgroundColor: '#fff1ef' }, word: { borderTopWidth: 1, borderColor: '#d6e0e3', paddingVertical: 16 }, context: { marginVertical: 8, lineHeight: 22 } });
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#f3f6f7' },
+  content: { padding: 18, paddingBottom: 40 },
+  title: { fontSize: 27, fontWeight: '700', color: '#17303a', marginBottom: 8 },
+  heading: { fontSize: 18, fontWeight: '600', color: '#17303a', marginBottom: 12 },
+  panel: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginVertical: 14,
+    borderWidth: 1,
+    borderColor: '#d6e0e3',
+  },
+  field: { marginBottom: 12 },
+  label: { fontWeight: '600', marginBottom: 6, color: '#17303a' },
+  input: {
+    padding: 10,
+    borderColor: '#9caeb5',
+    borderWidth: 1,
+    borderRadius: 6,
+    color: '#17303a',
+    minHeight: 44,
+    backgroundColor: '#fff',
+  },
+  button: { marginVertical: 5 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  hint: { color: '#506873', fontSize: 13, marginVertical: 8, lineHeight: 19 },
+  error: { color: '#a22320', padding: 12, backgroundColor: '#fff1ef' },
+  word: { borderTopWidth: 1, borderColor: '#d6e0e3', paddingVertical: 16 },
+  context: { marginVertical: 8, lineHeight: 22 },
+});
