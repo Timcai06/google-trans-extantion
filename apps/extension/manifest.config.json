@@ -1,0 +1,10 @@
+{
+  "name": "单词翻译助手",
+  "description": "划词、语境词库、离线复习与跨设备同步",
+  "minimum_chrome_version": "114",
+  "permissions": ["storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "action": { "default_popup": "library/index.html" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" },
+  "icons": { "16": "assets/icon16.png" }
+}

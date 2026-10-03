@@ -1,0 +1,10 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["entrypoints/**/*.ts", "types/**/*.d.ts", "wxt.config.ts"],
+  "exclude": ["legacy", ".output", "node_modules"]
+}

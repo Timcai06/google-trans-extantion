@@ -1,0 +1,19 @@
+{
+  "name": "@googletrans/extension",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "check": "node ../../scripts/check-extension.mjs",
+    "type-check": "wxt prepare && tsc --noEmit"
+  },
+  "dependencies": {
+    "@googletrans/core": "workspace:*",
+    "@googletrans/data": "workspace:*"
+  },
+  "devDependencies": {
+    "wxt": "0.21.4"
+  }
+}

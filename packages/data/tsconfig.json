@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"], "types": [], "strict": true,
+    "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true, "noEmit": true,
+    "paths": { "@googletrans/core": ["../core/src/index.ts"] }
+  },
+  "include": ["src/**/*.ts"]
+}

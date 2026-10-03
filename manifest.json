@@ -1,54 +1,40 @@
 {
   "manifest_version": 3,
   "name": "单词翻译助手",
-  "version": "2.1.0",
-  "description": "高性能翻译助手 - 优化版",
-  
-  "minimum_chrome_version": "88",
-  
+  "description": "划词、语境词库、离线复习与跨设备同步",
+  "version": "3.0.0",
+  "icons": {
+    "16": "apps/extension/.output/chrome-mv3/assets/icon16.png"
+  },
+  "minimum_chrome_version": "114",
   "permissions": [
-    "storage",
-    "activeTab",
-    "tabs"
+    "storage"
   ],
-  
-  "optional_permissions": [
-    "webNavigation"
-  ],
-
   "host_permissions": [
-    "<all_urls>",
-    "https://api.groq.com/*"
+    "http://*/*",
+    "https://*/*"
   ],
-
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": [
-        "extension/content/content-bundle.js"
-      ],
-      "css": [
-        "extension/content/content-bundle.css"
-      ],
-      "run_at": "document_idle",
-      "all_frames": false,
-      "world": "ISOLATED"
-    }
-  ],
-
   "action": {
-    "default_popup": "extension/popup/popup.html"
+    "default_popup": "apps/extension/.output/chrome-mv3/library/index.html"
   },
-
-  "background": {
-    "service_worker": "extension/background/background.js"
-  },
-
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
-
-  "icons": {
-    "16": "assets/icons/icon16.png"
-  }
+  "background": {
+    "service_worker": "apps/extension/.output/chrome-mv3/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "all_frames": false,
+      "run_at": "document_idle",
+      "js": [
+        "apps/extension/.output/chrome-mv3/content-scripts/content.js"
+      ],
+      "world": "ISOLATED"
+    }
+  ]
 }

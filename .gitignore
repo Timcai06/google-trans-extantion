@@ -10,7 +10,22 @@ node_modules/
 package-lock.json
 
 # Build outputs
-build/
+/build/
+.output/
+.wxt/
+.pnpm-store/
+.legacy-public/
+dist/
+.expo/
+.env
+.env.local
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo
 
 # IDE
 .DS_Store

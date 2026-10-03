@@ -1,0 +1,14 @@
+{
+  "name": "@googletrans/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "node build.mjs",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/server.mjs",
+    "dev": "node dev.mjs"
+  },
+  "dependencies": { "@googletrans/core": "workspace:*" }
+}

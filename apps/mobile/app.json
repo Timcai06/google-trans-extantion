@@ -1,0 +1,1 @@
+{"expo":{"name":"GoogleTrans","slug":"googletrans","version":"1.0.0","orientation":"portrait","scheme":"googletrans","ios":{"bundleIdentifier":"dev.googletrans.mobile","supportsTablet":true},"android":{"package":"dev.googletrans.mobile"},"plugins":["expo-secure-store","expo-sqlite"]}}
