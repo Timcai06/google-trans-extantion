@@ -2,6 +2,25 @@
 
 网页阅读用词汇学习工具，包含 Chrome 扩展、Web 应用、Expo 移动端和同步服务。扩展、Web 与移动端共用 `packages/core` 和 `packages/data`；各端本地保存词库，登录后可选择导入匿名词库并同步。
 
+## 多端词库与同步
+
+Chrome 扩展、Web 和 Expo 移动端共用学习规则与数据客户端，通过平台存储适配器保存本地词库。保存词条会同时记录待同步变更；登录后，客户端按游标交换变化并处理服务端确认。
+
+![GoogleTrans 三端共享本地词库逻辑与账户同步协议](assets/readme-diagrams/system.png)
+
+图中设备用来区分三种平台边界；屏幕是示意，不代表原生真机验收截图。
+
+| 层 | 负责什么 | 实现 |
+| --- | --- | --- |
+| 学习与协议 | 词条身份、复习事件、变更排序、请求校验与批次大小 | [`packages/core`](packages/core/src/sync.ts) |
+| 本地数据客户端 | 词库、待发送 outbox、备份、恢复与同步 | [`packages/data`](packages/data/src/client.ts) |
+| 平台存储 | Web/扩展与移动端各自的持久化适配 | [`store.ts`](packages/data/src/store.ts) · [`sqlite-store.ts`](apps/mobile/src/sqlite-store.ts) |
+| API | 身份校验与按用户隔离的同步入口 | [`apps/api`](apps/api/src/app.ts) |
+
+复习记录是不可变事件，学习进度由事件重放得到。同步请求同时限制记录数与 UTF-8 字节数，避免大词库一次上传超过服务端上限。
+
+当前图解对应 `codex/multiplatform-foundation` 分支。扩展真实安装、原生设备运行、公网部署与真实翻译提供方验收仍需分别完成，详见[多端验证记录](docs/architecture/multiplatform-verification.md)。
+
 ## 快速启动
 
 需要 Node.js 24 和 pnpm 10.33.0。
