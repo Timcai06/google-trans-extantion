@@ -1,6 +1,7 @@
 import { defineBackground } from 'wxt/utils/define-background';
 import { createIndexedDBStore, createLibraryClient } from '@googletrans/data';
 import { createExtensionService, type Connection } from '../runtime/service';
+import { readPreviousLibrary } from '../runtime/previous-library';
 
 export default defineBackground(() => {
   const store = createIndexedDBStore({ name: 'googletrans-library-v1' });
@@ -22,12 +23,21 @@ export default defineBackground(() => {
       'learningHistory',
       'dailyChallenges',
       'userSettings',
+      'googletransPreferences',
     ]);
     const local = createLibraryClient({ store, deviceId, namespace: 'local' });
     const report = await local.importLegacy(legacy);
-    if (report.imported || report.skipped || !settings.googletransMigrationReport) {
-      await chrome.storage.local.set({ googletransMigrationReport: report });
-      return report;
+    const previous = await readPreviousLibrary();
+    const previousReport = previous
+      ? await local.importLegacy(previous, { sourceId: 'googletrans-vocabulary' })
+      : { imported: 0, skipped: 0 };
+    const combined = {
+      imported: report.imported + previousReport.imported,
+      skipped: report.skipped + previousReport.skipped,
+    };
+    if (combined.imported || combined.skipped || !settings.googletransMigrationReport) {
+      await chrome.storage.local.set({ googletransMigrationReport: combined });
+      return combined;
     }
     return settings.googletransMigrationReport;
   })();

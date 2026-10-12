@@ -19,7 +19,7 @@ Chrome 扩展、Web 和 Expo 移动端共用学习规则与数据客户端，通
 
 复习记录是不可变事件，学习进度由事件重放得到。同步请求同时限制记录数与 UTF-8 字节数，避免大词库一次上传超过服务端上限。
 
-当前图解对应 `codex/multiplatform-foundation` 分支。扩展真实安装、原生设备运行、公网部署与真实翻译提供方验收仍需分别完成，详见[多端验证记录](docs/architecture/multiplatform-verification.md)。
+当前图解对应已合入 main 的多端共享架构。扩展真实安装、原生设备运行、公网部署与真实翻译提供方验收仍需分别完成，详见[多端验证记录](docs/architecture/multiplatform-verification.md)。
 
 ## 快速启动
 
@@ -47,6 +47,12 @@ API 默认监听 `127.0.0.1:8787`，Web 开发服务器使用 Vite 地址。移�
 `pnpm build` 会先构建 Web UI、再构建扩展并生成仓库根目录 `manifest.json` loader。Chrome 开发者模式选择“加载已解压的扩展程序”，选择**仓库根目录**。重建后在 `chrome://extensions/` 重载扩展。保持从相同根目录加载可以保留扩展 ID；不要改为从 `.output` 子目录加载。扩展首次启动会将旧 Chrome Storage 词库导入新本地存储，并保留旧数据。
 
 在 API 的 `ALLOWED_ORIGINS` 中加入 `chrome-extension://你的扩展ID`，重启 API 后即可从扩展登录和同步。ID 可在扩展管理页查看。
+
+### 从本地旧运行时迁入
+
+扩展启动时分别迁入旧 Chrome Storage 词库和 `googletrans-vocabulary` IndexedDB 词库。旧数据库只读访问，原数据保持不变；当前词条和已删除词条不会被旧数据覆盖或复活。旧上下文变体、作答历史和受支持的偏好保留在可导出的归档中，历史作答不会再次累计到当前学习统计。
+
+词库的备份导入同时接受当前备份和旧 `googletrans-learning-backup` v1 JSON 文件。导入前保存恢复快照；相同旧文件不会重复迁入，嵌套凭据不会进入新词库或迁移归档。旧偏好只保留在归档中，不自动更改现有界面设置。筛选依据与验证范围见[本地迁移整理记录](docs/architecture/local-migration-reconciliation.md)。
 
 ## 检查与架构
 

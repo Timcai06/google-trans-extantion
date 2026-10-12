@@ -11,6 +11,7 @@
 | [开发交接](development-handoff.md) | 快速启动、常用命令和接手检查点 |
 | [多端验证记录](multiplatform-verification.md) | 自动构建、真实浏览器和原生设备的分别验证情况 |
 | [多端实现契约](multiplatform-contract.md) | 词库、复习事件、冲突处理、认证与同步 API |
+| [本地迁移整理](local-migration-reconciliation.md) | 旧未提交运行时的筛选、旧 IndexedDB/JSON 兼容与回归验证 |
 
 ## 设计决策与历史记录
 

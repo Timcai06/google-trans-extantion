@@ -19,6 +19,15 @@ import {
   type WordData,
 } from '@googletrans/core';
 import { clone } from './store.js';
+import {
+  canonicalLegacy,
+  legacyPreferences,
+  legacyTimestamp,
+  legacyWord,
+  previousBackup,
+  previousBackupSource,
+  sanitizeLegacy,
+} from './legacy.js';
 import type {
   ImportReport,
   LibraryBackup,
@@ -266,7 +275,7 @@ export function createLibraryClient(options: {
       return progress(state, input.wordId);
     });
 
-  return {
+  const library: LibraryClient = {
     namespace,
     saveWord: (input) => transact((state) => save(state, input)),
     listWords: () =>
@@ -295,6 +304,14 @@ export function createLibraryClient(options: {
     getProgress: (key) => transact((state) => progress(state, key)),
     exportBackup: () => transact((state) => backup(state, now())),
     importBackup: async (input) => {
+      if (
+        input &&
+        typeof input === 'object' &&
+        (input as Record<string, unknown>).format === 'googletrans-learning-backup'
+      ) {
+        const converted = previousBackup(clone(input));
+        return library.importLegacy(converted, { sourceId: previousBackupSource(converted) });
+      }
       const source = validateBackup(input);
       return transact((state) => mergeBackup(state, source));
     },
@@ -312,12 +329,28 @@ export function createLibraryClient(options: {
       const source = await store.transaction('local', (state) => backup(state, now()));
       return transact((state) => mergeBackup(state, source));
     },
-    importLegacy: async (input) => {
-      const source = clone(objectValue(input, 'legacy storage'));
+    importLegacy: async (input, options) => {
+      const source = sanitizeLegacy(clone(objectValue(input, 'legacy storage'))) as Record<
+        string,
+        unknown
+      >;
+      const sourceId = options?.sourceId;
+      if (options && (typeof sourceId !== 'string' || !sourceId.trim() || sourceId.length > 200))
+        throw new TypeError('Invalid legacy migration source');
       if (JSON.stringify(source).length > 32_000_000)
         throw new RangeError('Legacy storage exceeds limit');
       return transact((state) => {
-        if (state.meta.legacyImported) return { imported: 0, skipped: 0 };
+        const sources = objectOrEmpty(state.meta.legacyImportSources);
+        if (sourceId?.startsWith('previous-backup:') && own(sources, sourceId)) {
+          const saved = own(
+            objectOrEmpty(objectOrEmpty(state.meta.legacy).previousLibraries),
+            sourceId,
+          );
+          if (saved && canonicalLegacy(saved) !== canonicalLegacy(source))
+            throw new TypeError('Previous backup identity collision');
+        }
+        if (sourceId ? own(sources, sourceId) : state.meta.legacyImported)
+          return { imported: 0, skipped: 0 };
         state.meta.preImportBackup = backup(state, now());
         const words =
           source.translatedWords &&
@@ -335,7 +368,7 @@ export function createLibraryClient(options: {
         let skipped = 0;
         for (const [key, inputWord] of Object.entries(words)) {
           try {
-            const word = objectValue(inputWord, 'legacy word');
+            const word = legacyWord(key, inputWord);
             const text =
               typeof word.text === 'string'
                 ? word.text
@@ -356,10 +389,7 @@ export function createLibraryClient(options: {
               word.timestamp ??
               word.addedTime ??
               (typeof word.firstUsed === 'string' ? Date.parse(word.firstUsed) : undefined);
-            const createdAt =
-              typeof created === 'number' && Number.isSafeInteger(created) && created >= 0
-                ? created
-                : now();
+            const createdAt = legacyTimestamp(created, now());
             save(state, {
               text,
               sourceLanguage,
@@ -384,7 +414,7 @@ export function createLibraryClient(options: {
           }
         }
         // Whitelist historical user content so backups never accidentally include credentials.
-        state.meta.legacy = Object.fromEntries(
+        const archive = Object.fromEntries(
           Object.entries(source).filter(([key]) =>
             [
               'translatedWords',
@@ -394,10 +424,34 @@ export function createLibraryClient(options: {
               'challenges',
               'dailyChallenges',
               'learningStats',
+              'userSettings',
+              'googletransPreferences',
             ].includes(key),
           ),
         );
-        state.meta.legacyImported = true;
+        for (const key of ['userSettings', 'googletransPreferences']) {
+          if (key in archive) archive[key] = legacyPreferences(archive[key]);
+        }
+        const previous = objectOrEmpty(state.meta.legacy);
+        if (sourceId) {
+          state.meta.legacy = {
+            ...previous,
+            previousLibraries: {
+              ...objectOrEmpty(previous.previousLibraries),
+              [sourceId]: archive,
+            },
+          };
+          Object.defineProperty(sources, sourceId, {
+            value: true,
+            enumerable: true,
+            configurable: true,
+            writable: true,
+          });
+          state.meta.legacyImportSources = sources;
+        } else {
+          state.meta.legacy = { ...previous, ...archive };
+          state.meta.legacyImported = true;
+        }
         return { imported, skipped };
       });
     },
@@ -449,6 +503,7 @@ export function createLibraryClient(options: {
       return operation;
     },
   };
+  return library;
 }
 function objectOrEmpty(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)

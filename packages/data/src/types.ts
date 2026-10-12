@@ -60,7 +60,8 @@ export interface LibraryClient {
   importBackup(input: unknown): Promise<ImportReport>;
   getPreImportBackup(): Promise<LibraryBackup | null>;
   restorePreImportBackup(): Promise<ImportReport>;
-  importLegacy(input: unknown): Promise<ImportReport>;
+  /** sourceId gives an independent, one-time migration marker to a previous runtime. */
+  importLegacy(input: unknown, options?: { sourceId: string }): Promise<ImportReport>;
   importAnonymous(): Promise<ImportReport>;
   sync(
     transport: (request: SyncRequest) => Promise<SyncResponse>,
